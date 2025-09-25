@@ -419,6 +419,10 @@ export default function ConfigScreen() {
     const unsubscribe = subscribeCalendarAccounts((list) => {
       setAccounts(sortAccounts(list));
       list.forEach((account) => {
+        if (registered.has(account.id)) {
+          refreshAccountSnapshot(account);
+          return;
+        }
         registerCalendarAccount(account);
         registered.add(account.id);
       });
