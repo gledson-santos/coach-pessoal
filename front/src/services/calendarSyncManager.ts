@@ -111,11 +111,25 @@ const startInterval = (accountId: string) => {
 export const registerCalendarAccount = (account: CalendarAccount) => {
   const existing = runners.get(account.id);
   if (existing) {
+    const previousAccount = existing.account;
     existing.account = account;
-    clearRunnerTimers(existing);
-    if (isAutoSyncEnabled(account)) {
+
+    const wasAutoSyncEnabled = isAutoSyncEnabled(previousAccount);
+    const isAutoSyncCurrentlyEnabled = isAutoSyncEnabled(account);
+
+    if (!isAutoSyncCurrentlyEnabled) {
+      clearRunnerTimers(existing);
+      return;
+    }
+
+    if (!wasAutoSyncEnabled && isAutoSyncCurrentlyEnabled) {
       startInterval(account.id);
       scheduleImmediateSync(account.id, 1_000);
+      return;
+    }
+
+    if (!existing.timer) {
+      startInterval(account.id);
     }
     return;
   }
