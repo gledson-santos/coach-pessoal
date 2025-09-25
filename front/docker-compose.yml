@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  coach-pessoal:
+    build: .
+    container_name: coach-pessoal
+    ports:
+      - "19000:19000"
+      - "19001:19001"
+      - "19002:19002"
+      - "8081:8081"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=100
+      - WATCHPACK_POLLING=true      
+    command: >
+      sh -c "npx expo start --tunnel --clear"

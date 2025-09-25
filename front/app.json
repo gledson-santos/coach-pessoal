@@ -1,0 +1,13 @@
+{
+  "plugins": [
+    "expo-sqlite",
+    "expo-asset"
+  ],
+  "extra": {
+    "eas": {
+      "projectId": "e9098e67-678c-4439-87ff-74ce1d298597"
+    }
+  },
+  "owner": "gledsonsantos",
+  "slug": "pessoal-coach"
+}
