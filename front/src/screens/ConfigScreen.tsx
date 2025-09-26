@@ -196,13 +196,48 @@ export default function ConfigScreen() {
 
   const registeredIdsRef = useRef(new Set<string>());
 
-  const redirectUri = useMemo(() => {
+  const fallbackRedirectUri = useMemo(() => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const { origin, pathname } = window.location;
       return `${origin}${pathname}`;
     }
     return AuthSession.makeRedirectUri({ useProxy });
   }, [useProxy]);
+
+  const redirectUri = useMemo(() => {
+    const candidates = (outlookOAuthConfig.redirectUris || [])
+      .map((uri) => uri.trim())
+      .filter(Boolean);
+
+    if (!candidates.length) {
+      return fallbackRedirectUri;
+    }
+
+    let selected: string | undefined;
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const { origin } = window.location;
+      selected =
+        candidates.find((uri) => {
+          try {
+            const parsed = new URL(uri);
+            return parsed.origin === origin;
+          } catch (error) {
+            return uri.startsWith(origin);
+          }
+        }) ?? candidates.find((uri) => uri === fallbackRedirectUri);
+    } else {
+      const scheme = fallbackRedirectUri.split("://")[0];
+      if (scheme) {
+        selected = candidates.find((uri) => uri.startsWith(`${scheme}://`));
+      }
+      if (!selected) {
+        selected = candidates.find((uri) => uri === fallbackRedirectUri);
+      }
+    }
+
+    return selected ?? candidates[0] ?? fallbackRedirectUri;
+  }, [fallbackRedirectUri, outlookOAuthConfig.redirectUris]);
 
   useEffect(() => {
     let active = true;

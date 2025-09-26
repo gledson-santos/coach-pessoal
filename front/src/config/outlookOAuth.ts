@@ -7,6 +7,15 @@ const parseScopes = (scopes: string[] | undefined) => {
     .filter(Boolean);
 };
 
+const parseRedirectUris = (uris: string[] | undefined) => {
+  if (!Array.isArray(uris)) {
+    return [];
+  }
+  return uris
+    .map((uri) => (typeof uri === "string" ? uri.trim() : ""))
+    .filter(Boolean);
+};
+
 const fromEnv = (value: string | undefined) =>
   (value ?? "")
     .split(/[\s,]+/)
@@ -38,11 +47,20 @@ const mergeScopes = (...lists: (string[] | undefined)[]) => {
   return Array.from(new Set(combined));
 };
 
+const mergeRedirectUris = (...lists: (string[] | undefined)[]) => {
+  const combined = [
+    ...fromEnv(process.env.EXPO_PUBLIC_MICROSOFT_REDIRECT_URIS),
+    ...lists.flatMap((list) => parseRedirectUris(list)),
+  ];
+  return Array.from(new Set(combined));
+};
+
 export type OutlookOAuthConfig = {
   clientId: string;
   defaultTenant: string;
   organizationsTenant: string;
   scopes: string[];
+  redirectUris: string[];
 };
 
 const initialConfig: OutlookOAuthConfig = {
@@ -53,6 +71,7 @@ const initialConfig: OutlookOAuthConfig = {
     "organizations"
   ),
   scopes: mergeScopes(),
+  redirectUris: mergeRedirectUris(),
 };
 
 let currentConfig: OutlookOAuthConfig = { ...initialConfig };
@@ -71,6 +90,7 @@ export const updateOutlookOAuthConfig = (
       currentConfig.organizationsTenant
     ),
     scopes: mergeScopes(currentConfig.scopes, overrides.scopes),
+    redirectUris: mergeRedirectUris(currentConfig.redirectUris, overrides.redirectUris),
   };
   return currentConfig;
 };
