@@ -552,13 +552,22 @@ export default function ConfigScreen() {
       context.clientId = clientId;
       setAuthContext(context);
       setConnectingProvider("google");
-      await promptGoogleAsync({
-        useProxy,
-        windowName: "coach-google-auth",
-      }).catch((error) => {
+      try {
+        const result = await promptGoogleAsync({
+          useProxy,
+          windowName: "coach-google-auth",
+        });
+        if (result?.type !== "success") {
+          if (result?.type === "error" && typeof result.error === "string" && result.error.trim().length > 0) {
+            setErrorMessage(result.error);
+          }
+          setConnectingProvider(null);
+          setAuthContext(null);
+        }
+      } catch (error: any) {
         setConnectingProvider(null);
         setErrorMessage(error?.message ?? "Nao foi possivel iniciar o consentimento do Google.");
-      });
+      }
       return;
     }
 
@@ -569,13 +578,22 @@ export default function ConfigScreen() {
 
     setAuthContext(context);
     setConnectingProvider("outlook");
-    await promptOutlookAsync({
-      useProxy,
-      windowName: "coach-outlook-auth",
-    }).catch((error) => {
+    try {
+      const result = await promptOutlookAsync({
+        useProxy,
+        windowName: "coach-outlook-auth",
+      });
+      if (result?.type !== "success") {
+        if (result?.type === "error" && typeof result.error === "string" && result.error.trim().length > 0) {
+          setErrorMessage(result.error);
+        }
+        setConnectingProvider(null);
+        setAuthContext(null);
+      }
+    } catch (error: any) {
       setConnectingProvider(null);
       setErrorMessage(error?.message ?? "Nao foi possivel iniciar o consentimento da Microsoft.");
-    });
+    }
   }, [
     outlookOAuthConfig,
     promptGoogleAsync,
