@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   ScrollView,
@@ -10,6 +10,7 @@ import {
 
 import { Ionicons } from "@expo/vector-icons";
 import TaskModal from "../components/TaskModal";
+import { DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel, normalizeCalendarColor } from "../constants/calendarCategories";
 
 import { deleteProviderEvent } from "../services/calendarProviderActions";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
@@ -64,10 +65,9 @@ const calculateOpenDays = (task: Task) => {
 };
 type TaskCardProps = {
   task: Task;
-  accentColor: string;
   onEdit: () => void;
 };
-const TaskCard = ({ task, accentColor, onEdit }: TaskCardProps) => {
+const TaskCard = ({ task, onEdit }: TaskCardProps) => {
   const tempo = task.tempoExecucao ?? 15;
   const dataFormatada = formatDate(task.data);
   const diasEmAberto = calculateOpenDays(task);
@@ -76,19 +76,28 @@ const TaskCard = ({ task, accentColor, onEdit }: TaskCardProps) => {
     : diasEmAberto <= 0
     ? "Criada hoje"
     : `Em aberto ha ${diasEmAberto} dia${diasEmAberto === 1 ? "" : "s"}`;
+  const calendarColor = normalizeCalendarColor(task.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
+  const categoryLabel = getCalendarCategoryLabel(task.cor ?? null);
+  const badgeBackground = `${calendarColor}26`;
   return (
     <TouchableOpacity
       style={styles.cardWrapper}
       activeOpacity={0.85}
       onPress={onEdit}
     >
-      <View style={[styles.cardAccent, { backgroundColor: accentColor }]} />
+      <View style={[styles.cardAccent, { backgroundColor: calendarColor }]} />
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle} numberOfLines={2}>
             {task.titulo}
           </Text>
-          <Ionicons name="create-outline" size={20} style={styles.cardHeaderIcon} />
+          <View style={styles.cardHeaderRight}>
+            <View style={[styles.cardCategoryBadge, { backgroundColor: badgeBackground }]}>
+              <View style={[styles.cardCategoryDot, { backgroundColor: calendarColor }]} />
+              <Text style={styles.cardCategoryText}>{categoryLabel}</Text>
+            </View>
+            <Ionicons name="create-outline" size={20} style={styles.cardHeaderIcon} />
+          </View>
         </View>
         <View style={styles.cardMetaRow}>
           <Ionicons name="time-outline" size={16} style={styles.metaIcon} />
@@ -209,19 +218,16 @@ export default function TasksScreen() {
       {
         key: "today",
         title: "Hoje",
-        accentColor: "#EB5757",
         data: bucket.today,
       },
       {
         key: "tomorrow",
         title: "Amanha",
-        accentColor: "#F2C94C",
         data: bucket.tomorrow,
       },
       {
         key: "upcoming",
         title: "Proximas",
-        accentColor: "#27AE60",
         data: bucket.upcoming,
       },
     ];
@@ -240,10 +246,21 @@ export default function TasksScreen() {
     setModalVisible(true);
   };
   const handleSave = async (task: Task) => {
-    if (task.id) {
-      await atualizarEvento(task);
+    const merged: Task = {
+      ...selectedTask,
+      ...task,
+      googleId: task.googleId ?? selectedTask?.googleId,
+      outlookId: task.outlookId ?? selectedTask?.outlookId,
+      provider: task.provider ?? selectedTask?.provider,
+      accountId: task.accountId ?? selectedTask?.accountId ?? null,
+      cor: task.cor ?? selectedTask?.cor ?? DEFAULT_CALENDAR_CATEGORY.color,
+      status: task.status ?? selectedTask?.status ?? "ativo",
+    };
+
+    if (merged.id) {
+      await atualizarEvento(merged);
     } else {
-      await salvarEvento(task);
+      await salvarEvento(merged);
     }
     await carregarTarefas();
   };
@@ -302,7 +319,6 @@ export default function TasksScreen() {
                     task.id ? String(task.id) : `${section.key}-${taskIndex}`
                   }
                   task={task}
-                  accentColor={section.accentColor}
                   onEdit={() => abrirEdicao(task)}
                 />
               ))}
@@ -413,6 +429,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: 12,
+  },
+  cardHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  cardCategoryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  cardCategoryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  cardCategoryText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0f172a",
   },
   cardTitle: {
     flex: 1,

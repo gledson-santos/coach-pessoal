@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -38,6 +38,7 @@ import {
 } from "../services/calendarSyncManager";
 import { removerEventosSincronizados } from "../database";
 import { loadRemoteOAuthConfig } from "../services/oauthConfig";
+import { CALENDAR_CATEGORIES, CalendarCategory, DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel } from "../constants/calendarCategories";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -83,18 +84,6 @@ type AuthContext = {
   tenantId?: string;
   clientId?: string;
 };
-
-const COLOR_PALETTE = [
-  "#2a9d8f",
-  "#e76f51",
-  "#f4a261",
-  "#264653",
-  "#8ab17d",
-  "#577399",
-  "#ef476f",
-  "#118ab2",
-  "#073b4c",
-];
 
 const resolveGoogleClientId = () => {
   if (Platform.OS === "web") {
@@ -143,7 +132,7 @@ export default function ConfigScreen() {
   const [loading, setLoading] = useState(true);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [colorModalVisible, setColorModalVisible] = useState(false);
-  const [selectedColor, setSelectedColor] = useState(COLOR_PALETTE[0]);
+  const [selectedCategory, setSelectedCategory] = useState<CalendarCategory>(DEFAULT_CALENDAR_CATEGORY);
   const [selectedOption, setSelectedOption] = useState<ProviderOption | null>(null);
   const [authContext, setAuthContext] = useState<AuthContext | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<CalendarProvider | null>(null);
@@ -560,7 +549,7 @@ export default function ConfigScreen() {
 
   const handleSelectProvider = useCallback((option: ProviderOption) => {
     setSelectedOption(option);
-    setSelectedColor(COLOR_PALETTE[0]);
+    setSelectedCategory(DEFAULT_CALENDAR_CATEGORY);
     setColorModalVisible(true);
   }, []);
 
@@ -574,7 +563,7 @@ export default function ConfigScreen() {
 
     const context: AuthContext = {
       provider: selectedOption.provider,
-      color: selectedColor,
+      color: selectedCategory.color,
       tenantId: selectedOption.tenantId,
     };
 
@@ -633,7 +622,7 @@ export default function ConfigScreen() {
     outlookOAuthConfig,
     promptGoogleAsync,
     promptOutlookAsync,
-    selectedColor,
+    selectedCategory,
     selectedOption,
   ]);
 
@@ -672,7 +661,7 @@ export default function ConfigScreen() {
       });
       unregisterCalendarAccount(disconnectingAccount.id);
       await removeCalendarAccount(disconnectingAccount.id);
-      setFeedbackMessage("Conta desconectada e eventos removidos.");
+      setFeedbackMessage("Conta desconectada e tarefas marcadas como removidas.");
     } catch (error: any) {
       console.error("[disconnect] erro", error);
       setErrorMessage(error?.message ?? "Nao foi possivel desconectar a conta.");
@@ -700,6 +689,7 @@ export default function ConfigScreen() {
           : account.status === "syncing"
           ? "#f4a261"
           : "#2a9d8f";
+      const categoryLabel = getCalendarCategoryLabel(account.color);
 
       return (
         <View key={account.id} style={[styles.accountCard, { borderLeftColor: account.color }]}>
@@ -715,7 +705,10 @@ export default function ConfigScreen() {
                   : "Outlook.com"}
               </Text>
             </View>
-            <View style={[styles.colorPreview, { backgroundColor: account.color }]} />
+            <View style={styles.accountCategoryBadge}>
+              <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
+              <Text style={styles.accountCategoryText}>{categoryLabel}</Text>
+            </View>
           </View>
 
           <View style={styles.accountStatusRow}>
@@ -814,20 +807,33 @@ export default function ConfigScreen() {
       <Modal visible={colorModalVisible} transparent animationType="fade" onRequestClose={closeColorModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Escolha uma cor</Text>
+            <Text style={styles.modalTitle}>Classifique sua agenda</Text>
             <Text style={styles.modalMessage}>
-              Essa cor será usada para identificar os eventos importados desta conta.
+              Escolha se esta agenda será usada para compromissos pessoais ou de trabalho. A cor selecionada será aplicada em todos os cards relacionados.
             </Text>
             <View style={styles.colorGrid}>
-              {COLOR_PALETTE.map((color) => {
-                const selected = color === selectedColor;
+              {CALENDAR_CATEGORIES.map((category) => {
+                const selected = category.key === selectedCategory.key;
                 return (
                   <TouchableOpacity
-                    key={color}
-                    style={[styles.colorSwatch, { backgroundColor: color }, selected && styles.colorSwatchSelected]}
-                    onPress={() => setSelectedColor(color)}
+                    key={category.key}
+                    style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
+                    onPress={() => setSelectedCategory(category)}
                   >
-                    {selected ? <Ionicons name="checkmark" size={18} color="#fff" /> : null}
+                    <View
+                      style={[styles.categoryColorDot, { backgroundColor: category.color }]}
+                    />
+                    <Text
+                      style={[
+                        styles.categoryOptionLabel,
+                        selected && styles.categoryOptionLabelSelected,
+                      ]}
+                    >
+                      {category.label}
+                    </Text>
+                    {selected ? (
+                      <Ionicons name="checkmark" size={18} color={category.color} />
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -963,10 +969,24 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontSize: 13,
   },
-  colorPreview: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+  accountCategoryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#e2e8f0",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  accountCategoryDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  accountCategoryText: {
+    color: "#1f2937",
+    fontWeight: "600",
+    fontSize: 12,
   },
   accountStatusRow: {
     flexDirection: "row",
@@ -1062,24 +1082,37 @@ const styles = StyleSheet.create({
     color: "#64748b",
   },
   colorGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    width: "100%",
     gap: 12,
   },
-  colorSwatch: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  categoryOption: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f8fafc",
   },
-  colorSwatchSelected: {
-    borderWidth: 3,
-    borderColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+  categoryOptionSelected: {
+    borderColor: "#264653",
+    backgroundColor: "#e0f2f1",
+  },
+  categoryColorDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+  },
+  categoryOptionLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  categoryOptionLabelSelected: {
+    color: "#0f172a",
   },
   modalActions: {
     flexDirection: "row",
