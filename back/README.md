@@ -27,6 +27,7 @@ Variáveis relevantes:
 - DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME: credenciais da base MySQL.
 - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URIS: credenciais do app Google.
 - MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_REDIRECT_URIS, MICROSOFT_TENANT_ID: credenciais do app Microsoft.
+- MICROSOFT_SCOPES: escopos adicionais para o login Microsoft (por padrão solicitamos permissões delegadas como `Calendars.ReadWrite`).
 - MICROSOFT_ORGANIZATIONS_TENANT: tenant usado para contas corporativas (padrão `organizations`).
 - MICROSOFT_ALLOWED_TENANTS: lista (separada por vírgula) de tenants permitidos para autenticação.
 
@@ -84,7 +85,7 @@ Resposta (resumo):
 `
 
 ### POST /oauth/outlook/exchange
-Fluxo idêntico ao do Google, porém usando o endpoint da Microsoft. Aceita parâmetros opcionais como 	enantId, scopes e color.
+Fluxo idêntico ao do Google, porém usando o endpoint da Microsoft com permissões delegadas (Authorization Code Flow). Aceita parâmetros opcionais como tenantId, scopes e color.
 
 ### GET /accounts
 Lista todas as contas de calendário cadastradas no banco.

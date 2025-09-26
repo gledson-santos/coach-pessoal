@@ -27,7 +27,7 @@ const requiredScopes = [
   "openid",
   "profile",
   "email",
-  "https://graph.microsoft.com/Calendars.ReadWrite",
+  "Calendars.ReadWrite",
 ];
 
 const sanitizeTenant = (value: string | null | undefined, fallback: string) => {
