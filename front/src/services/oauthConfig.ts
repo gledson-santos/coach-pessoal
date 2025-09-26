@@ -11,6 +11,7 @@ type OAuthConfigResponse = {
     defaultTenant?: string | null;
     organizationsTenant?: string | null;
     scopes?: string[] | null;
+    redirectUris?: string[] | null;
   } | null;
 };
 
@@ -39,6 +40,12 @@ const extractMicrosoftOverrides = (
     overrides.scopes = payload.scopes
       .map((scope) => (typeof scope === "string" ? scope.trim() : ""))
       .filter((scope): scope is string => Boolean(scope));
+  }
+
+  if (Array.isArray(payload.redirectUris)) {
+    overrides.redirectUris = payload.redirectUris
+      .map((uri) => (typeof uri === "string" ? uri.trim() : ""))
+      .filter((uri): uri is string => Boolean(uri));
   }
 
   return overrides;
