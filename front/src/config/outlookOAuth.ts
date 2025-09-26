@@ -65,7 +65,7 @@ export type OutlookOAuthConfig = {
 
 const initialConfig: OutlookOAuthConfig = {
   clientId: process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID ?? "",
-  defaultTenant: sanitizeTenant(process.env.EXPO_PUBLIC_MICROSOFT_DEFAULT_TENANT, "common"),
+  defaultTenant: sanitizeTenant(process.env.EXPO_PUBLIC_MICROSOFT_DEFAULT_TENANT, "consumers"),
   organizationsTenant: sanitizeTenant(
     process.env.EXPO_PUBLIC_MICROSOFT_ORGANIZATIONS_TENANT,
     "organizations"
