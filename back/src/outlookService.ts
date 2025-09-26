@@ -21,7 +21,7 @@ export type OutlookTokenResponse = {
   [key: string]: unknown;
 };
 
-const sanitizeTenantId = (value: string | undefined) => {
+const sanitizeTenantId = (value: string | null | undefined) => {
   if (!value) {
     return undefined;
   }
