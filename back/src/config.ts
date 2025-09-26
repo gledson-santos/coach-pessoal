@@ -6,10 +6,13 @@ const parseRedirectUris = (value: string | undefined) => {
   if (!value) {
     return [];
   }
-  return value
-    .split(",")
+
+  const entries = value
+    .split(/[\s,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+
+  return Array.from(new Set(entries));
 };
 
 const parseScopes = (value: string | undefined) => {
