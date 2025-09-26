@@ -374,6 +374,7 @@ export default function AgendaScreen() {
                   (ev.endMin - ev.startMin) * MINUTE_HEIGHT,
                   DURACAO_MINIMA * MINUTE_HEIGHT
                 );
+                const isEventoCurto = altura <= DURACAO_MINIMA * MINUTE_HEIGHT + 2;
 
                 const estiloDinamico: any = {
                   top: ev.startMin * MINUTE_HEIGHT,
@@ -389,6 +390,11 @@ export default function AgendaScreen() {
                     ev.columnIndex * (larguraColuna + CARD_SPACING) + CARD_SPACING / 2;
                 }
 
+                if (isEventoCurto) {
+                  estiloDinamico.paddingVertical = 4;
+                  estiloDinamico.justifyContent = "center";
+                }
+
                 return (
                   <TouchableOpacity
                     key={ev.uniqueKey}
@@ -396,13 +402,18 @@ export default function AgendaScreen() {
                     onPress={() => abrirModalEditar(ev)}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.eventoTexto}>{ev.titulo}</Text>
-                    <Text style={styles.eventoHora}>
+                    <Text
+                      style={[styles.eventoTexto, isEventoCurto && styles.eventoTextoCurto]}
+                      numberOfLines={isEventoCurto ? 2 : undefined}
+                    >
+                      {ev.titulo}
+                    </Text>
+                    <Text style={[styles.eventoHora, isEventoCurto && styles.eventoHoraCurta]}>
                       {new Date(ev.inicio ?? "").toLocaleTimeString("pt-BR", {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
-                      {" "}ï¿½{" "}
+                      {" "}-{" "}
                       {new Date(ev.fim ?? "").toLocaleTimeString("pt-BR", {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -524,6 +535,7 @@ export default function AgendaScreen() {
                           (ev.endMin - ev.startMin) * MINUTE_HEIGHT,
                           DURACAO_MINIMA * MINUTE_HEIGHT
                         );
+                        const isEventoCurto = altura <= DURACAO_MINIMA * MINUTE_HEIGHT + 2;
                         const availableWidth =
                           WEEK_DAY_WIDTH - CARD_SPACING * (ev.maxColumns + 1);
                         const larguraEvento = Math.max(
@@ -534,25 +546,37 @@ export default function AgendaScreen() {
                           CARD_SPACING +
                           ev.columnIndex * (larguraEvento + CARD_SPACING);
 
+                        const estiloEvento: any = {
+                          top: ev.startMin * MINUTE_HEIGHT,
+                          height: altura,
+                          backgroundColor: corBase,
+                          width: larguraEvento,
+                          left,
+                        };
+
+                        if (isEventoCurto) {
+                          estiloEvento.paddingVertical = 4;
+                          estiloEvento.justifyContent = "center";
+                        }
+
                         return (
                           <TouchableOpacity
                             key={ev.uniqueKey}
                             style={[
                               styles.eventBlock,
                               ev.conflict && styles.eventBlockConflict,
-                              {
-                                top: ev.startMin * MINUTE_HEIGHT,
-                                height: altura,
-                                backgroundColor: corBase,
-                                width: larguraEvento,
-                                left,
-                              },
+                              estiloEvento,
                             ]}
                             onPress={() => abrirModalEditar(ev)}
                             activeOpacity={0.85}
                           >
-                            <Text style={styles.eventoTexto}>{ev.titulo}</Text>
-                            <Text style={styles.eventoHora}>
+                            <Text
+                              style={[styles.eventoTexto, isEventoCurto && styles.eventoTextoCurto]}
+                              numberOfLines={isEventoCurto ? 2 : undefined}
+                            >
+                              {ev.titulo}
+                            </Text>
+                            <Text style={[styles.eventoHora, isEventoCurto && styles.eventoHoraCurta]}>
                               {new Date(ev.inicio ?? "").toLocaleTimeString("pt-BR", {
                                 hour: "2-digit",
                                 minute: "2-digit",
@@ -720,7 +744,8 @@ const styles = StyleSheet.create({
   eventBlock: {
     position: "absolute",
     borderRadius: 6,
-    padding: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: "#fff",
     overflow: "hidden",
@@ -734,8 +759,22 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
   },
-  eventoTexto: { color: "#fff", fontWeight: "bold" },
-  eventoHora: { color: "#fff", fontSize: 12, marginTop: 4 },
+  eventoTexto: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  eventoTextoCurto: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  eventoHora: { color: "#fff", fontSize: 12, marginTop: 4, lineHeight: 16 },
+  eventoHoraCurta: {
+    fontSize: 10,
+    marginTop: 2,
+    lineHeight: 12,
+  },
   conflictOverlay: {
     position: "absolute",
     left: 0,
