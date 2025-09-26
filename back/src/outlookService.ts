@@ -61,7 +61,7 @@ const ensureScopes = (scopes: string[] | undefined) => {
     ...config.microsoft.scopes,
     ...(Array.isArray(scopes) ? scopes : []),
     "offline_access",
-    "https://graph.microsoft.com/Calendars.ReadWrite",
+    "Calendars.ReadWrite",
     "openid",
     "profile",
     "email",
