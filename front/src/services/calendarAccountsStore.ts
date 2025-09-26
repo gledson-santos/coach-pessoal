@@ -1,4 +1,5 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
 import { CalendarAccount } from "../types/calendar";
 
 const STORAGE_KEY = "@coach/calendarAccounts";
@@ -18,7 +19,7 @@ const notify = () => {
 
 const normalizeAccount = (account: CalendarAccount): CalendarAccount => ({
   ...account,
-  color: (account.color || "#2a9d8f").toLowerCase(),
+  color: normalizeCalendarColor(account.color ?? DEFAULT_CALENDAR_CATEGORY.color),
   autoSyncEnabled: account.autoSyncEnabled ?? true,
   lastSync: account.lastSync ?? null,
   status: account.status ?? "idle",
@@ -123,7 +124,7 @@ export const updateCalendarAccountColor = async (accountId: string, color: strin
   if (index < 0) {
     return;
   }
-  const normalized = color.toLowerCase();
+  const normalized = normalizeCalendarColor(color);
   accounts[index] = { ...accounts[index], color: normalized };
   await persist();
   notify();

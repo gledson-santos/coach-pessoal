@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 import { Evento, salvarEvento, listarEventos, atualizarEvento } from "../database";
 import TaskModal from "../components/TaskModal";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
+import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
 
 type EventoAgenda = Evento;
 
@@ -366,7 +367,9 @@ export default function AgendaScreen() {
               ))}
 
               {eventosDiaAtual.map((ev) => {
-                const corBase = ev.conflict ? "#e63946" : ev.cor || "#2a9d8f";
+                const corBase = ev.conflict
+                  ? "#e63946"
+                  : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                 const altura = Math.max(
                   (ev.endMin - ev.startMin) * MINUTE_HEIGHT,
                   DURACAO_MINIMA * MINUTE_HEIGHT
@@ -516,7 +519,7 @@ export default function AgendaScreen() {
                       {eventosDia.map((ev) => {
                         const corBase = ev.conflict
                           ? "#e63946"
-                          : ev.cor || "#2a9d8f";
+                          : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                         const altura = Math.max(
                           (ev.endMin - ev.startMin) * MINUTE_HEIGHT,
                           DURACAO_MINIMA * MINUTE_HEIGHT
