@@ -138,6 +138,7 @@ const sortAccounts = (list: CalendarAccount[]) =>
   });
 
 export default function ConfigScreen() {
+  const useProxy = Platform.OS !== "web";
   const [accounts, setAccounts] = useState<CalendarAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [importModalVisible, setImportModalVisible] = useState(false);
@@ -200,8 +201,8 @@ export default function ConfigScreen() {
       const { origin, pathname } = window.location;
       return `${origin}${pathname}`;
     }
-    return AuthSession.makeRedirectUri();
-  }, []);
+    return AuthSession.makeRedirectUri({ useProxy });
+  }, [useProxy]);
 
   useEffect(() => {
     let active = true;
@@ -552,7 +553,7 @@ export default function ConfigScreen() {
       setAuthContext(context);
       setConnectingProvider("google");
       await promptGoogleAsync({
-        useProxy: Platform.OS !== "web",
+        useProxy,
         windowName: "coach-google-auth",
       }).catch((error) => {
         setConnectingProvider(null);
@@ -569,7 +570,7 @@ export default function ConfigScreen() {
     setAuthContext(context);
     setConnectingProvider("outlook");
     await promptOutlookAsync({
-      useProxy: Platform.OS !== "web",
+      useProxy,
       windowName: "coach-outlook-auth",
     }).catch((error) => {
       setConnectingProvider(null);
