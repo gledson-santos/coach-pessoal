@@ -15,7 +15,10 @@ import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { buildApiUrl } from "../config/api";
 import { GOOGLE_OAUTH_CONFIG } from "../config/googleOAuth";
-import { OUTLOOK_OAUTH_CONFIG } from "../config/outlookOAuth";
+import {
+  getOutlookOAuthConfig,
+  OutlookOAuthConfig,
+} from "../config/outlookOAuth";
 import { CalendarAccount, CalendarProvider } from "../types/calendar";
 import {
   findCalendarAccount,
@@ -34,6 +37,7 @@ import {
   triggerManualSync,
 } from "../services/calendarSyncManager";
 import { removerEventosSincronizados } from "../database";
+import { loadRemoteOAuthConfig } from "../services/oauthConfig";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -79,32 +83,6 @@ type AuthContext = {
   tenantId?: string;
   clientId?: string;
 };
-
-const PROVIDER_OPTIONS: ProviderOption[] = [
-  {
-    id: "google",
-    provider: "google",
-    title: "Google Calendar",
-    subtitle: "Conta Gmail",
-    icon: "google",
-  },
-  {
-    id: "outlook-personal",
-    provider: "outlook",
-    title: "Outlook.com",
-    subtitle: "Conta pessoal",
-    icon: "microsoft-outlook",
-    tenantId: OUTLOOK_OAUTH_CONFIG.defaultTenant || "common",
-  },
-  {
-    id: "outlook-business",
-    provider: "outlook",
-    title: "Microsoft 365",
-    subtitle: "Conta corporativa",
-    icon: "microsoft",
-    tenantId: OUTLOOK_OAUTH_CONFIG.organizationsTenant || "organizations",
-  },
-];
 
 const COLOR_PALETTE = [
   "#2a9d8f",
@@ -172,6 +150,48 @@ export default function ConfigScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [disconnectingAccount, setDisconnectingAccount] = useState<CalendarAccount | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [outlookOAuthConfig, setOutlookOAuthConfig] = useState<OutlookOAuthConfig>(() =>
+    getOutlookOAuthConfig()
+  );
+
+  const providerOptions = useMemo<ProviderOption[]>(
+    () => [
+      {
+        id: "google",
+        provider: "google",
+        title: "Google Calendar",
+        subtitle: "Conta Gmail",
+        icon: "google",
+      },
+      {
+        id: "outlook-personal",
+        provider: "outlook",
+        title: "Outlook.com",
+        subtitle: "Conta pessoal",
+        icon: "microsoft-outlook",
+        tenantId: outlookOAuthConfig.defaultTenant || "common",
+      },
+      {
+        id: "outlook-business",
+        provider: "outlook",
+        title: "Microsoft 365",
+        subtitle: "Conta corporativa",
+        icon: "microsoft",
+        tenantId: outlookOAuthConfig.organizationsTenant || "organizations",
+      },
+    ],
+    [outlookOAuthConfig]
+  );
+
+  useEffect(() => {
+    if (!selectedOption) {
+      return;
+    }
+    const updated = providerOptions.find((option) => option.id === selectedOption.id);
+    if (updated && updated !== selectedOption) {
+      setSelectedOption(updated);
+    }
+  }, [providerOptions, selectedOption]);
 
   const registeredIdsRef = useRef(new Set<string>());
 
@@ -181,6 +201,25 @@ export default function ConfigScreen() {
       return `${origin}${pathname}`;
     }
     return AuthSession.makeRedirectUri();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    loadRemoteOAuthConfig()
+      .then(({ microsoft }) => {
+        if (!active || !microsoft) {
+          return;
+        }
+        setOutlookOAuthConfig(microsoft);
+      })
+      .catch((error) => {
+        console.warn("[config] Falha ao carregar configuracao OAuth remota", error);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const googleRequestOptions = useMemo(
@@ -204,8 +243,8 @@ export default function ConfigScreen() {
 
   const outlookRequestConfig = useMemo(
     () => ({
-      clientId: OUTLOOK_OAUTH_CONFIG.clientId,
-      scopes: OUTLOOK_OAUTH_CONFIG.scopes,
+      clientId: outlookOAuthConfig.clientId,
+      scopes: outlookOAuthConfig.scopes,
       redirectUri,
       usePKCE: true,
       responseType: AuthSession.ResponseType.Code,
@@ -215,7 +254,7 @@ export default function ConfigScreen() {
         response_mode: "query",
       },
     }),
-    [redirectUri]
+    [outlookOAuthConfig, redirectUri]
   );
 
   const outlookDiscovery = useMemo(
@@ -288,7 +327,7 @@ export default function ConfigScreen() {
       setColorModalVisible(false);
       setImportModalVisible(false);
     },
-    [authContext, redirectUri]
+    [authContext, outlookOAuthConfig, redirectUri]
   );
 
   const handleOutlookExchange = useCallback(
@@ -297,19 +336,19 @@ export default function ConfigScreen() {
         return;
       }
 
-      if (!OUTLOOK_OAUTH_CONFIG.clientId) {
+      if (!outlookOAuthConfig.clientId) {
         throw new Error("Client ID da Microsoft nao configurado.");
       }
 
       setConnectingProvider("outlook");
 
-      const tenantId = authContext.tenantId || OUTLOOK_OAUTH_CONFIG.defaultTenant || "common";
+      const tenantId = authContext.tenantId || outlookOAuthConfig.defaultTenant || "common";
 
       const payload: Record<string, unknown> = {
         code,
         redirectUri,
         tenantId,
-        scopes: OUTLOOK_OAUTH_CONFIG.scopes,
+        scopes: outlookOAuthConfig.scopes,
         color: authContext.color,
       };
 
@@ -343,8 +382,8 @@ export default function ConfigScreen() {
         accessToken: data.tokens.accessToken ?? null,
         accessTokenExpiresAt: expiresAt,
         scope: data.tokens.scope ?? data.account.scope ?? null,
-        tenantId: data.tokens.tenantId ?? tenantId,
-        clientId: OUTLOOK_OAUTH_CONFIG.clientId,
+        tenantId: data.tokens.tenantId ?? tenantId ?? data.account.tenantId ?? null,
+        clientId: outlookOAuthConfig.clientId,
       };
 
       await upsertCalendarAccount(account);
@@ -356,7 +395,7 @@ export default function ConfigScreen() {
       setColorModalVisible(false);
       setImportModalVisible(false);
     },
-    [authContext, redirectUri]
+    [authContext, outlookOAuthConfig, redirectUri]
   );
 
 
@@ -522,7 +561,7 @@ export default function ConfigScreen() {
       return;
     }
 
-    if (!OUTLOOK_OAUTH_CONFIG.clientId) {
+    if (!outlookOAuthConfig.clientId) {
       setErrorMessage("Client ID da Microsoft nao configurado.");
       return;
     }
@@ -536,7 +575,13 @@ export default function ConfigScreen() {
       setConnectingProvider(null);
       setErrorMessage(error?.message ?? "Nao foi possivel iniciar o consentimento da Microsoft.");
     });
-  }, [promptGoogleAsync, promptOutlookAsync, selectedColor, selectedOption]);
+  }, [
+    outlookOAuthConfig,
+    promptGoogleAsync,
+    promptOutlookAsync,
+    selectedColor,
+    selectedOption,
+  ]);
 
   const closeColorModal = useCallback(() => {
     if (connectingProvider) {
@@ -611,7 +656,7 @@ export default function ConfigScreen() {
               <Text style={styles.accountProvider}>
                 {account.provider === "google"
                   ? "Google Calendar"
-                  : account.tenantId === (OUTLOOK_OAUTH_CONFIG.organizationsTenant || "organizations")
+                  : account.tenantId === (outlookOAuthConfig.organizationsTenant || "organizations")
                   ? "Microsoft 365"
                   : "Outlook.com"}
               </Text>
@@ -644,7 +689,7 @@ export default function ConfigScreen() {
         </View>
       );
     },
-    [disconnecting, disconnectingAccount, handleDisconnectRequest]
+    [disconnecting, disconnectingAccount, handleDisconnectRequest, outlookOAuthConfig]
   );
 
   return (
@@ -656,7 +701,7 @@ export default function ConfigScreen() {
       >
         <Text style={styles.importButtonText}>Importar Calendário</Text>
         <View style={styles.importIconsRow}>
-          {PROVIDER_OPTIONS.map((option) => (
+          {providerOptions.map((option) => (
             <MaterialCommunityIcons
               key={option.id}
               name={option.icon}
@@ -690,7 +735,7 @@ export default function ConfigScreen() {
             <Text style={styles.modalTitle}>Escolha o calendário</Text>
             <Text style={styles.modalMessage}>Selecione o provedor que deseja importar.</Text>
             <View style={styles.providerList}>
-              {PROVIDER_OPTIONS.map((option) => (
+              {providerOptions.map((option) => (
                 <TouchableOpacity
                   key={option.id}
                   style={styles.providerOption}

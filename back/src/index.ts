@@ -12,6 +12,22 @@ app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+app.get("/oauth/config", (_req, res) => {
+  res.json({
+    google: {
+      clientId: config.google.clientId || null,
+    },
+    microsoft: {
+      clientId: config.microsoft.clientId || null,
+      defaultTenant: config.microsoft.tenantId || null,
+      organizationsTenant: config.microsoft.organizationsTenant || null,
+      scopes: config.microsoft.scopes,
+      redirectUris: config.microsoft.redirectUris,
+      allowedTenants: config.microsoft.allowedTenants,
+    },
+  });
+});
 type OAuthExchangeRequest = {
   code?: string;
   redirectUri?: string;

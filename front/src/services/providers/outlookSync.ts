@@ -10,12 +10,11 @@ import {
 } from "../calendarAccountsStore";
 import { persistProviderTokens } from "../calendarProviderActions";
 import { buildApiUrl } from "../../config/api";
-import { OUTLOOK_OAUTH_CONFIG } from "../../config/outlookOAuth";
+import { getOutlookOAuthConfig } from "../../config/outlookOAuth";
 
 const TOKEN_ENDPOINT = (tenant: string) =>
   `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`;
 const CALENDAR_VIEW_ENDPOINT = "https://graph.microsoft.com/v1.0/me/calendarview";
-const DEFAULT_TENANT = OUTLOOK_OAUTH_CONFIG.defaultTenant || "common";
 const DEFAULT_DIFFICULTY = "Media";
 
 const diferencaEmMinutos = (inicio?: string | null, fim?: string | null) => {
@@ -42,20 +41,26 @@ const normalizarIso = (value?: string | null) => {
   return date.toISOString();
 };
 
+const resolveDefaultTenant = () => {
+  const config = getOutlookOAuthConfig();
+  return config.defaultTenant || "common";
+};
+
 const resolveTenant = (account: CalendarAccount) => {
   if (account.tenantId) {
     return account.tenantId;
   }
-  return DEFAULT_TENANT;
+  return resolveDefaultTenant();
 };
 
 const refreshAccessTokenLocally = async (account: CalendarAccount) => {
-  const clientId = account.clientId ?? OUTLOOK_OAUTH_CONFIG.clientId;
+  const config = getOutlookOAuthConfig();
+  const clientId = account.clientId ?? config.clientId;
   if (!clientId) {
     throw new Error("Client ID da Microsoft nao configurado para atualizar token.");
   }
 
-  const scopes = OUTLOOK_OAUTH_CONFIG.scopes.join(" ");
+  const scopes = config.scopes.join(" ");
   const payload = new URLSearchParams({
     client_id: clientId,
     grant_type: "refresh_token",
