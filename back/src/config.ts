@@ -85,16 +85,26 @@ export const config = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
     redirectUris: parseRedirectUris(process.env.GOOGLE_REDIRECT_URIS ?? ""),
   },
-  microsoft: {
-    clientId: process.env.MICROSOFT_CLIENT_ID ?? "",
-    clientSecret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
-    tenantId: (process.env.MICROSOFT_TENANT_ID ?? "common").trim() || "common",
-    organizationsTenant:
-      (process.env.MICROSOFT_ORGANIZATIONS_TENANT ?? "organizations").trim() || "organizations",
-    redirectUris: parseRedirectUris(process.env.MICROSOFT_REDIRECT_URIS ?? ""),
-    scopes: parseScopes(process.env.MICROSOFT_SCOPES ?? ""),
-    allowedTenants: parseList(process.env.MICROSOFT_ALLOWED_TENANTS ?? ""),
-  },
+  microsoft: (() => {
+    const defaultTenant = (process.env.MICROSOFT_TENANT_ID ?? "consumers").trim() || "consumers";
+    const organizationsTenant =
+      (process.env.MICROSOFT_ORGANIZATIONS_TENANT ?? "organizations").trim() || "organizations";
+    const explicitAllowed = parseList(process.env.MICROSOFT_ALLOWED_TENANTS ?? "");
+    const allowedTenants =
+      explicitAllowed.length > 0
+        ? explicitAllowed
+        : Array.from(new Set([defaultTenant, organizationsTenant]));
+
+    return {
+      clientId: process.env.MICROSOFT_CLIENT_ID ?? "",
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
+      tenantId: defaultTenant,
+      organizationsTenant,
+      redirectUris: parseRedirectUris(process.env.MICROSOFT_REDIRECT_URIS ?? ""),
+      scopes: parseScopes(process.env.MICROSOFT_SCOPES ?? ""),
+      allowedTenants,
+    };
+  })(),
 };
 
 if (!config.google.clientId || !config.google.clientSecret) {

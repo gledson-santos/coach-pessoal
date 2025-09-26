@@ -159,7 +159,7 @@ export default function ConfigScreen() {
         title: "Outlook.com",
         subtitle: "Conta pessoal",
         icon: "microsoft-outlook",
-        tenantId: outlookOAuthConfig.defaultTenant || "common",
+        tenantId: outlookOAuthConfig.defaultTenant || "consumers",
       },
       {
         id: "outlook-business",
@@ -266,6 +266,11 @@ export default function ConfigScreen() {
     [redirectUri]
   );
 
+  const resolvedTenantForDiscovery = useMemo(
+    () => (outlookOAuthConfig.defaultTenant || "consumers").trim() || "consumers",
+    [outlookOAuthConfig.defaultTenant]
+  );
+
   const outlookRequestConfig = useMemo(
     () => ({
       clientId: outlookOAuthConfig.clientId,
@@ -284,10 +289,10 @@ export default function ConfigScreen() {
 
   const outlookDiscovery = useMemo(
     () => ({
-      authorizationEndpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-      tokenEndpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      authorizationEndpoint: `https://login.microsoftonline.com/${resolvedTenantForDiscovery}/oauth2/v2.0/authorize`,
+      tokenEndpoint: `https://login.microsoftonline.com/${resolvedTenantForDiscovery}/oauth2/v2.0/token`,
     }),
-    []
+    [resolvedTenantForDiscovery]
   );
 
   const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest(googleRequestOptions);
@@ -367,7 +372,7 @@ export default function ConfigScreen() {
 
       setConnectingProvider("outlook");
 
-      const tenantId = authContext.tenantId || outlookOAuthConfig.defaultTenant || "common";
+      const tenantId = authContext.tenantId || outlookOAuthConfig.defaultTenant || "consumers";
 
       const payload: Record<string, unknown> = {
         code,

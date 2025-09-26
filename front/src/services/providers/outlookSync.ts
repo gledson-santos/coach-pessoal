@@ -43,7 +43,7 @@ const normalizarIso = (value?: string | null) => {
 
 const resolveDefaultTenant = () => {
   const config = getOutlookOAuthConfig();
-  return config.defaultTenant || "common";
+  return config.defaultTenant || "consumers";
 };
 
 const resolveTenant = (account: CalendarAccount) => {
