@@ -24,6 +24,24 @@ export type Evento = {
 
 const DEFAULT_TEMPO_EXECUCAO = 15;
 
+const sanitizeTempoExecucao = (
+  value: unknown,
+  fallback: number = DEFAULT_TEMPO_EXECUCAO
+): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(1, Math.round(value));
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.round(parsed));
+    }
+  }
+
+  return Math.max(1, Math.round(fallback));
+};
+
 const adicionarColuna = async (
   database: SQLite.SQLiteDatabase,
   column: string,
@@ -107,7 +125,7 @@ const mapRowToEvento = (row: any): Evento => ({
   data: row.data ?? undefined,
   tipo: row.tipo,
   dificuldade: row.dificuldade,
-  tempoExecucao: row.tempoExecucao ?? DEFAULT_TEMPO_EXECUCAO,
+  tempoExecucao: sanitizeTempoExecucao(row.tempoExecucao),
   inicio: row.inicio ?? undefined,
   fim: row.fim ?? undefined,
   cor: row.cor ?? undefined,
@@ -127,19 +145,21 @@ const normalizarEvento = (ev: Evento): Evento => {
   const accountId = ev.accountId ?? null;
   const status = ev.status ?? "ativo";
   const cor = normalizeCalendarColor(ev.cor);
+  const tempoExecucao = sanitizeTempoExecucao(ev.tempoExecucao);
   return {
     ...ev,
     provider,
     accountId,
     status,
     cor,
+    tempoExecucao,
   };
 };
 
 export async function salvarEvento(ev: Evento) {
   const db = await dbPromise;
   const evento = normalizarEvento(ev);
-  const tempo = evento.tempoExecucao ?? DEFAULT_TEMPO_EXECUCAO;
+  const tempo = sanitizeTempoExecucao(evento.tempoExecucao);
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
   const fimCalculado = evento.fim ?? calcularFim(inicioBase, tempo);
   const updatedAt = evento.updatedAt ?? new Date().toISOString();
@@ -191,7 +211,7 @@ export async function atualizarEvento(ev: Evento) {
 
   const db = await dbPromise;
   const evento = normalizarEvento(ev);
-  const tempo = evento.tempoExecucao ?? DEFAULT_TEMPO_EXECUCAO;
+  const tempo = sanitizeTempoExecucao(evento.tempoExecucao);
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
   const fimCalculado = evento.fim ?? calcularFim(inicioBase, tempo);
   const updatedAt = evento.updatedAt ?? new Date().toISOString();
