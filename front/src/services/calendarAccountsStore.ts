@@ -8,8 +8,19 @@ let accounts: CalendarAccount[] = [];
 let initialized = false;
 const listeners = new Set<(value: CalendarAccount[]) => void>();
 
+let writeQueue: Promise<void> = Promise.resolve();
+
+const runExclusive = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const next = writeQueue.then(operation, operation);
+  writeQueue = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+};
+
 const persist = async () => {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+  await runExclusive(() => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)));
 };
 
 const notify = () => {
