@@ -27,7 +27,7 @@ Variáveis relevantes:
 - DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME: credenciais da base MySQL.
 - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URIS: credenciais do app Google.
 - MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_REDIRECT_URIS, MICROSOFT_TENANT_ID: credenciais do app Microsoft. Por padrão usamos o tenant `consumers`, voltado para contas pessoais (Outlook.com, Hotmail, Live, etc.).
-- MICROSOFT_SCOPES: escopos adicionais para o login Microsoft (por padrão solicitamos permissões delegadas como `Calendars.ReadWrite`).
+- MICROSOFT_SCOPES: escopos adicionais para o login Microsoft (por padrão solicitamos permissões delegadas como `Calendars.Read`).
 - MICROSOFT_ORGANIZATIONS_TENANT: tenant usado para contas corporativas (padrão `organizations`).
 - MICROSOFT_ALLOWED_TENANTS: lista (separada por vírgula) de tenants permitidos para autenticação. Caso não seja informado, permitimos automaticamente o tenant pessoal (`consumers`) e o corporativo configurado.
 
