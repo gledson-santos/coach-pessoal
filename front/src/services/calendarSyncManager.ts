@@ -5,6 +5,7 @@ import {
 } from "./calendarAccountsStore";
 import { syncGoogleAccount } from "./providers/googleSync";
 import { syncOutlookAccount } from "./providers/outlookSync";
+import { syncIcsAccount } from "./providers/icsSync";
 
 const AUTO_SYNC_INTERVAL = 5 * 60 * 1000;
 const IMMEDIATE_SYNC_DELAY = 3_000;
@@ -39,6 +40,10 @@ const performProviderSync = async (account: CalendarAccount) => {
   }
   if (account.provider === "outlook") {
     await syncOutlookAccount(account);
+    return;
+  }
+  if (account.provider === "ics") {
+    await syncIcsAccount(account);
     return;
   }
   throw new Error(`Provider "${account.provider}" nao suportado.`);

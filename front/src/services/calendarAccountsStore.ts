@@ -32,6 +32,8 @@ const normalizeAccount = (account: CalendarAccount): CalendarAccount => ({
   calendarId: account.calendarId ?? (account.provider === "google" ? "primary" : null),
   tenantId: account.tenantId ?? null,
   externalId: account.externalId ?? null,
+  icsUrl: account.icsUrl ?? null,
+  readOnly: account.provider === "ics" ? true : account.readOnly ?? false,
 });
 
 export const initializeCalendarAccounts = async () => {

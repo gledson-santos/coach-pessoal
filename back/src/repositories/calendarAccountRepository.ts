@@ -2,7 +2,7 @@
 import { v4 as uuid } from "uuid";
 import { withConnection } from "../db";
 
-export type CalendarProvider = "google" | "outlook";
+export type CalendarProvider = "google" | "outlook" | "ics";
 
 export type CalendarAccountRecord = {
   id: string;
@@ -16,6 +16,7 @@ export type CalendarAccountRecord = {
   access_token: string | null;
   access_token_expires_at: Date | null;
   refresh_token: string | null;
+  ics_url: string | null;
   raw_payload: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
@@ -34,6 +35,7 @@ type UpsertAccountParams = {
   accessToken?: string | null;
   accessTokenExpiresAt?: Date | null;
   refreshToken?: string | null;
+  icsUrl?: string | null;
   rawPayload?: Record<string, unknown> | null;
 };
 
@@ -59,6 +61,7 @@ const mapRow = (row: DbCalendarAccount): CalendarAccountRecord => ({
   display_name: row.display_name,
   tenant_id: row.tenant_id,
   external_id: row.external_id,
+  ics_url: row.ics_url ?? null,
   access_token_expires_at: row.access_token_expires_at ? new Date(row.access_token_expires_at) : null,
   created_at: new Date(row.created_at),
   updated_at: new Date(row.updated_at),
@@ -110,6 +113,7 @@ export const calendarAccountRepository = {
                access_token = ?,
                access_token_expires_at = ?,
                refresh_token = ?,
+               ics_url = ?,
                raw_payload = ?,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
@@ -122,6 +126,7 @@ export const calendarAccountRepository = {
             params.accessToken ?? existing.access_token,
             params.accessTokenExpiresAt ?? existing.access_token_expires_at,
             params.refreshToken ?? existing.refresh_token,
+            params.icsUrl ?? existing.ics_url,
             params.rawPayload ? JSON.stringify(params.rawPayload) : existing.raw_payload,
             existing.id,
           ]
@@ -139,8 +144,8 @@ export const calendarAccountRepository = {
       await conn.query(
         `INSERT INTO calendar_accounts (
           id, provider, email, display_name, color, scope, tenant_id, external_id,
-          access_token, access_token_expires_at, refresh_token, raw_payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+          access_token, access_token_expires_at, refresh_token, ics_url, raw_payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           id,
           params.provider,
@@ -153,6 +158,7 @@ export const calendarAccountRepository = {
           params.accessToken ?? null,
           params.accessTokenExpiresAt ?? null,
           params.refreshToken ?? null,
+          params.icsUrl ?? null,
           params.rawPayload ? JSON.stringify(params.rawPayload) : null,
         ]
       );

@@ -1,4 +1,4 @@
-﻿export type CalendarProvider = "google" | "outlook";
+export type CalendarProvider = "google" | "outlook" | "ics";
 
 export type CalendarAccount = {
   id: string;
@@ -18,4 +18,6 @@ export type CalendarAccount = {
   lastSync?: string | null;
   status?: "idle" | "syncing" | "error";
   errorMessage?: string | null;
+  icsUrl?: string | null;
+  readOnly?: boolean;
 };
