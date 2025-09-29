@@ -1,4 +1,5 @@
-﻿import cors from "cors";
+﻿import axios from "axios";
+import cors from "cors";
 import express from "express";
 import { config } from "./config";
 import { exchangeGoogleCode, refreshGoogleToken } from "./googleService";
@@ -241,6 +242,47 @@ app.post("/accounts/ics", async (req, res) => {
   } catch (error) {
     console.error("[route] falha ao registrar conta ICS", error);
     res.status(500).json({ error: "ics_upsert_failed" });
+  }
+});
+app.post("/ics/fetch", async (req, res) => {
+  const { url } = req.body as { url?: string };
+
+  if (typeof url !== "string" || !url.trim()) {
+    res.status(400).json({ error: "url_required", message: "Informe o link ICS que deseja importar." });
+    return;
+  }
+
+  let normalizedUrl = url.trim();
+
+  try {
+    const parsed = new URL(normalizedUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("invalid_protocol");
+    }
+    normalizedUrl = parsed.toString();
+  } catch {
+    res.status(400).json({ error: "invalid_url", message: "O link ICS informado não é válido." });
+    return;
+  }
+
+  try {
+    const response = await axios.get<string>(normalizedUrl, { responseType: "text", timeout: 15_000 });
+    const contentType = response.headers["content-type"] ?? "text/calendar; charset=utf-8";
+    res.setHeader("content-type", contentType);
+    res.send(response.data);
+  } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status ?? 502 : 502;
+    const message = axios.isAxiosError(error)
+      ? error.response?.status
+        ? `Falha ao baixar o arquivo ICS (status ${error.response.status}).`
+        : "Não foi possível baixar o arquivo ICS."
+      : "Não foi possível baixar o arquivo ICS.";
+    console.error("[route] falha ao baixar arquivo ICS", {
+      status: axios.isAxiosError(error) ? error.response?.status ?? null : null,
+      data: axios.isAxiosError(error) ? error.response?.data ?? null : null,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    res.status(status >= 400 ? status : 502).json({ error: "ics_fetch_failed", message });
   }
 });
 app.get("/accounts", async (_req, res) => {

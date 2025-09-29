@@ -1,3 +1,4 @@
+import { buildApiUrl } from "../../config/api";
 import { CalendarAccount } from "../../types/calendar";
 import {
   Evento,
@@ -8,6 +9,32 @@ import { updateCalendarAccountStatus } from "../calendarAccountsStore";
 
 const DEFAULT_DIFFICULTY = "Media";
 const DEFAULT_TYPE = "Calendário ICS";
+
+const fetchIcsContent = async (url: string): Promise<string> => {
+  const response = await fetch(buildApiUrl("/ics/fetch"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    let message = `Falha ao carregar o arquivo ICS (${response.status}).`;
+    try {
+      const data = await response.json();
+      const errorMessage = typeof data?.message === "string" ? data.message.trim() : "";
+      if (errorMessage) {
+        message = errorMessage;
+      } else if (typeof data?.error === "string" && data.error.trim()) {
+        message = `${message} (${data.error.trim()})`;
+      }
+    } catch {
+      // Ignora falhas ao analisar o corpo da resposta de erro.
+    }
+    throw new Error(message);
+  }
+
+  return await response.text();
+};
 
 type ParsedIcsEvent = {
   uid?: string;
@@ -251,12 +278,7 @@ export const syncIcsAccount = async (account: CalendarAccount) => {
     throw new Error("Informe um link ICS válido para sincronizar.");
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Falha ao carregar o arquivo ICS (${response.status}).`);
-  }
-
-  const content = await response.text();
+  const content = await fetchIcsContent(url);
   if (!content.trim()) {
     throw new Error("O arquivo ICS está vazio.");
   }
