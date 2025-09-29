@@ -9,5 +9,10 @@
     }
   },
   "owner": "gledsonsantos",
-  "slug": "pessoal-coach"
+  "slug": "pessoal-coach",
+  "name": "Coach Pessoal",
+  "runtimeVersion": { "policy": "sdkVersion" },
+    "updates": {
+      "enabled": true
+    }
 }
