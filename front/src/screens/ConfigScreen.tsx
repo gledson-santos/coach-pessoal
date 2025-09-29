@@ -257,9 +257,20 @@ export default function ConfigScreen() {
     [redirectUri]
   );
 
-  const resolvedTenantForDiscovery = useMemo(
+  const defaultOutlookTenant = useMemo(
     () => (outlookOAuthConfig.defaultTenant || "consumers").trim() || "consumers",
     [outlookOAuthConfig.defaultTenant]
+  );
+
+  const organizationsOutlookTenant = useMemo(
+    () => (outlookOAuthConfig.organizationsTenant || "organizations").trim() || "organizations",
+    [outlookOAuthConfig.organizationsTenant]
+  );
+
+  const resolvedOutlookTenant = useMemo(
+    () =>
+      outlookAccountType === "business" ? organizationsOutlookTenant : defaultOutlookTenant,
+    [outlookAccountType, organizationsOutlookTenant, defaultOutlookTenant]
   );
 
   const outlookRequestConfig = useMemo(
@@ -273,17 +284,18 @@ export default function ConfigScreen() {
       extraParams: {
         prompt: "select_account",
         response_mode: "query",
+        domain_hint: outlookAccountType === "business" ? "organizations" : "consumers",
       },
     }),
-    [outlookOAuthConfig, redirectUri]
+    [outlookOAuthConfig, redirectUri, outlookAccountType]
   );
 
   const outlookDiscovery = useMemo(
     () => ({
-      authorizationEndpoint: `https://login.microsoftonline.com/${resolvedTenantForDiscovery}/oauth2/v2.0/authorize`,
-      tokenEndpoint: `https://login.microsoftonline.com/${resolvedTenantForDiscovery}/oauth2/v2.0/token`,
+      authorizationEndpoint: `https://login.microsoftonline.com/${resolvedOutlookTenant}/oauth2/v2.0/authorize`,
+      tokenEndpoint: `https://login.microsoftonline.com/${resolvedOutlookTenant}/oauth2/v2.0/token`,
     }),
-    [resolvedTenantForDiscovery]
+    [resolvedOutlookTenant]
   );
 
   const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest(googleRequestOptions);
@@ -363,7 +375,7 @@ export default function ConfigScreen() {
 
       setConnectingProvider("outlook");
 
-      const tenantId = authContext.tenantId || outlookOAuthConfig.defaultTenant || "consumers";
+      const tenantId = authContext.tenantId ?? resolvedOutlookTenant;
 
       const payload: Record<string, unknown> = {
         code,
@@ -416,7 +428,7 @@ export default function ConfigScreen() {
       setColorModalVisible(false);
       setImportModalVisible(false);
     },
-    [authContext, outlookOAuthConfig, redirectUri]
+    [authContext, outlookOAuthConfig, redirectUri, resolvedOutlookTenant]
   );
 
 
@@ -548,14 +560,13 @@ export default function ConfigScreen() {
       setSelectedOption(option);
       setSelectedCategory(DEFAULT_CALENDAR_CATEGORY);
       if (option.provider === "outlook") {
-        const defaultTenant = outlookOAuthConfig.defaultTenant || "consumers";
-        const organizationsTenant = outlookOAuthConfig.organizationsTenant || "organizations";
-        const inferredType = defaultTenant === organizationsTenant ? "business" : "personal";
+        const inferredType =
+          defaultOutlookTenant === organizationsOutlookTenant ? "business" : "personal";
         setOutlookAccountType(inferredType);
       }
       setColorModalVisible(true);
     },
-    [outlookOAuthConfig]
+    [defaultOutlookTenant, organizationsOutlookTenant]
   );
 
   const beginAuth = useCallback(async () => {
@@ -605,9 +616,7 @@ export default function ConfigScreen() {
     }
 
     context.tenantId =
-      outlookAccountType === "business"
-        ? outlookOAuthConfig.organizationsTenant || "organizations"
-        : outlookOAuthConfig.defaultTenant || "consumers";
+      outlookAccountType === "business" ? organizationsOutlookTenant : defaultOutlookTenant;
 
     setAuthContext(context);
     setConnectingProvider("outlook");
@@ -629,7 +638,9 @@ export default function ConfigScreen() {
     }
   }, [
     outlookAccountType,
-    outlookOAuthConfig,
+    defaultOutlookTenant,
+    organizationsOutlookTenant,
+    outlookOAuthConfig.clientId,
     promptGoogleAsync,
     promptOutlookAsync,
     selectedCategory,
