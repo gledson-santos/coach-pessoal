@@ -15,6 +15,7 @@ export type Evento = {
   cor?: string;
   googleId?: string;
   outlookId?: string;
+  icsUid?: string;
   updatedAt?: string;
   provider?: CalendarProvider | "local";
   accountId?: string | null;
@@ -51,6 +52,7 @@ const dbPromise = (async () => {
       cor TEXT,
       googleId TEXT,
       outlookId TEXT,
+      icsUid TEXT,
       updatedAt TEXT,
       provider TEXT DEFAULT 'local',
       accountId TEXT,
@@ -61,6 +63,7 @@ const dbPromise = (async () => {
   await adicionarColuna(database, "tempoExecucao", "INTEGER DEFAULT 15");
   await adicionarColuna(database, "googleId", "TEXT");
   await adicionarColuna(database, "outlookId", "TEXT");
+  await adicionarColuna(database, "icsUid", "TEXT");
   await adicionarColuna(database, "updatedAt", "TEXT");
   await adicionarColuna(database, "provider", "TEXT DEFAULT 'local'");
   await adicionarColuna(database, "accountId", "TEXT");
@@ -77,6 +80,9 @@ const dbPromise = (async () => {
   );
   await database.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_eventos_outlook ON eventos(outlookId)"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_eventos_ics ON eventos(icsUid)"
   );
 
   return database;
@@ -107,6 +113,7 @@ const mapRowToEvento = (row: any): Evento => ({
   cor: row.cor ?? undefined,
   googleId: row.googleId ?? undefined,
   outlookId: row.outlookId ?? undefined,
+  icsUid: row.icsUid ?? undefined,
   updatedAt: row.updatedAt ?? undefined,
   provider: (row.provider as CalendarProvider | "local") ?? "local",
   accountId: row.accountId ?? null,
@@ -114,7 +121,9 @@ const mapRowToEvento = (row: any): Evento => ({
 });
 
 const normalizarEvento = (ev: Evento): Evento => {
-  const provider = ev.provider ?? (ev.googleId ? "google" : ev.outlookId ? "outlook" : "local");
+  const provider =
+    ev.provider ??
+    (ev.googleId ? "google" : ev.outlookId ? "outlook" : ev.icsUid ? "ics" : "local");
   const accountId = ev.accountId ?? null;
   const status = ev.status ?? "ativo";
   const cor = normalizeCalendarColor(ev.cor);
@@ -148,11 +157,12 @@ export async function salvarEvento(ev: Evento) {
       cor,
       googleId,
       outlookId,
+      icsUid,
       updatedAt,
       provider,
       accountId,
       status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       evento.titulo,
       evento.observacao ?? "",
@@ -165,6 +175,7 @@ export async function salvarEvento(ev: Evento) {
       evento.cor ?? DEFAULT_CALENDAR_CATEGORY.color,
       evento.googleId ?? null,
       evento.outlookId ?? null,
+      evento.icsUid ?? null,
       updatedAt,
       evento.provider,
       evento.accountId ?? null,
@@ -188,7 +199,7 @@ export async function atualizarEvento(ev: Evento) {
   await db.runAsync(
     `UPDATE eventos
      SET titulo = ?, observacao = ?, data = ?, tipo = ?, dificuldade = ?, tempoExecucao = ?, inicio = ?, fim = ?,
-         cor = ?, googleId = ?, outlookId = ?, updatedAt = ?, provider = ?, accountId = ?, status = ?
+        cor = ?, googleId = ?, outlookId = ?, icsUid = ?, updatedAt = ?, provider = ?, accountId = ?, status = ?
      WHERE id = ?`,
     [
       evento.titulo,
@@ -202,6 +213,7 @@ export async function atualizarEvento(ev: Evento) {
       evento.cor ?? DEFAULT_CALENDAR_CATEGORY.color,
       evento.googleId ?? null,
       evento.outlookId ?? null,
+      evento.icsUid ?? null,
       updatedAt,
       evento.provider,
       evento.accountId ?? null,
@@ -216,9 +228,10 @@ export async function deletarEvento(id: number) {
   const registro = await db.getFirstAsync<{
     googleId: string | null;
     outlookId: string | null;
+    icsUid: string | null;
     accountId: string | null;
     provider: string | null;
-  }>(`SELECT googleId, outlookId, accountId, provider FROM eventos WHERE id = ?`, [id]);
+  }>(`SELECT googleId, outlookId, icsUid, accountId, provider FROM eventos WHERE id = ?`, [id]);
   const updatedAt = new Date().toISOString();
   await db.runAsync(`UPDATE eventos SET status = ?, updatedAt = ? WHERE id = ?`, [
     "removido",
@@ -229,7 +242,8 @@ export async function deletarEvento(id: number) {
   const outlookId = registro?.outlookId?.trim() ? registro.outlookId : null;
   const accountId = registro?.accountId ?? null;
   const provider = (registro?.provider as CalendarProvider | null) ?? null;
-  return { googleId, outlookId, provider, accountId };
+  const icsUid = registro?.icsUid?.trim() ? registro.icsUid : null;
+  return { googleId, outlookId, icsUid, provider, accountId };
 }
 
 export async function buscarEventos(setEventos: (eventos: Evento[]) => void) {
@@ -277,6 +291,22 @@ export async function upsertEventoPorOutlookId(ev: Evento) {
   return salvarEvento(ev);
 }
 
+export async function upsertEventoPorIcsUid(ev: Evento) {
+  if (!ev.icsUid) {
+    return salvarEvento(ev);
+  }
+  const db = await dbPromise;
+  const existente = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM eventos WHERE icsUid = ? AND accountId = ?`,
+    [ev.icsUid, ev.accountId ?? null]
+  );
+  if (existente?.id) {
+    await atualizarEvento({ ...ev, id: existente.id });
+    return existente.id;
+  }
+  return salvarEvento(ev);
+}
+
 export async function atualizarGoogleInfo(
   id: number,
   info: { googleId?: string | null; updatedAt?: string | null }
@@ -306,11 +336,11 @@ export async function atualizarGoogleInfo(
 export { dbPromise as db };
 
 export async function removerEventosSincronizados(
-  provider: "google" | "outlook",
+  provider: "google" | "outlook" | "ics",
   options: { accountId?: string } = {}
 ) {
   const db = await dbPromise;
-  const column = provider === "google" ? "googleId" : "outlookId";
+  const column = provider === "google" ? "googleId" : provider === "outlook" ? "outlookId" : "icsUid";
   const updatedAt = new Date().toISOString();
   const params: any[] = [
     "removido",

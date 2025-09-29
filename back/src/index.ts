@@ -41,13 +41,15 @@ type OAuthExchangeRequest = {
 };
 type CalendarAccountDto = {
   id: string;
-  provider: "google" | "outlook";
+  provider: "google" | "outlook" | "ics";
   email: string;
   displayName: string | null;
   color: string;
   scope: string | null;
   tenantId: string | null;
   externalId: string | null;
+  icsUrl: string | null;
+  readOnly: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -64,6 +66,8 @@ const toAccountDto = (record: Awaited<ReturnType<typeof calendarAccountRepositor
     scope: record.scope,
     tenantId: record.tenant_id,
     externalId: record.external_id,
+    icsUrl: record.ics_url,
+    readOnly: record.provider === "ics",
     createdAt: record.created_at.toISOString(),
     updatedAt: record.updated_at.toISOString(),
   };
@@ -189,6 +193,54 @@ app.post("/oauth/outlook/exchange", async (req, res) => {
     const data = error?.response?.data ?? { message: error?.message ?? "exchange failed" };
     console.error("[route] outlook exchange failed", { status, data });
     res.status(status).json({ error: "outlook_exchange_failed", details: data });
+  }
+});
+app.post("/accounts/ics", async (req, res) => {
+  const { url, color, label } = req.body as { url?: string; color?: string; label?: string };
+
+  if (typeof url !== "string" || !url.trim()) {
+    res.status(400).json({ error: "url_required", message: "Informe o link ICS que deseja importar." });
+    return;
+  }
+
+  let normalizedUrl = url.trim();
+  if (normalizedUrl.startsWith("webcal://")) {
+    normalizedUrl = `https://${normalizedUrl.slice("webcal://".length)}`;
+  }
+
+  try {
+    const parsed = new URL(normalizedUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("invalid_protocol");
+    }
+    normalizedUrl = parsed.toString();
+  } catch {
+    res.status(400).json({ error: "invalid_url", message: "O link ICS informado não é válido." });
+    return;
+  }
+
+  const normalizedColor = normalizeHexColor(color ?? "#2a9d8f");
+  const displayName = typeof label === "string" && label.trim() ? label.trim() : null;
+
+  try {
+    const account = await calendarAccountRepository.upsert({
+      provider: "ics",
+      email: normalizedUrl,
+      displayName,
+      color: normalizedColor,
+      scope: null,
+      externalId: normalizedUrl,
+      accessToken: null,
+      accessTokenExpiresAt: null,
+      refreshToken: null,
+      icsUrl: normalizedUrl,
+      rawPayload: { url: normalizedUrl, label: displayName ?? undefined },
+    });
+
+    res.status(200).json({ account: toAccountDto(account) });
+  } catch (error) {
+    console.error("[route] falha ao registrar conta ICS", error);
+    res.status(500).json({ error: "ics_upsert_failed" });
   }
 });
 app.get("/accounts", async (_req, res) => {

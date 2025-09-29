@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -59,6 +60,8 @@ type AccountDto = {
   scope: string | null;
   tenantId: string | null;
   externalId: string | null;
+  icsUrl: string | null;
+  readOnly: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -115,6 +118,8 @@ const mapAccountDtoToCalendarAccount = (dto: AccountDto): CalendarAccount => ({
   lastSync: null,
   status: "idle",
   errorMessage: null,
+  icsUrl: dto.icsUrl ?? (dto.provider === "ics" ? dto.email : null),
+  readOnly: dto.readOnly ?? (dto.provider === "ics"),
 });
 
 const sortAccounts = (list: CalendarAccount[]) =>
@@ -143,6 +148,8 @@ export default function ConfigScreen() {
   const [outlookOAuthConfig, setOutlookOAuthConfig] = useState<OutlookOAuthConfig>(() =>
     getOutlookOAuthConfig()
   );
+  const [icsUrlInput, setIcsUrlInput] = useState("");
+  const [icsLabelInput, setIcsLabelInput] = useState("");
 
   const providerOptions = useMemo<ProviderOption[]>(
     () => [
@@ -159,6 +166,13 @@ export default function ConfigScreen() {
         title: "Outlook/Office 365",
         subtitle: "Conecte contas pessoais ou corporativas",
         icon: "microsoft",
+      },
+      {
+        id: "ics",
+        provider: "ics",
+        title: "Calendário ICS",
+        subtitle: "Importe usando um link .ics (somente leitura)",
+        icon: "calendar-import",
       },
     ],
     []
@@ -469,6 +483,8 @@ export default function ConfigScreen() {
             status: local.status ?? base.status,
             errorMessage: local.errorMessage ?? base.errorMessage,
             tenantId: base.tenantId ?? local.tenantId ?? null,
+            icsUrl: base.icsUrl ?? local.icsUrl ?? null,
+            readOnly: base.readOnly ?? local.readOnly ?? false,
           };
         });
 
@@ -552,6 +568,8 @@ export default function ConfigScreen() {
     setFeedbackMessage(null);
     setErrorMessage(null);
     setSelectedOption(null);
+    setIcsUrlInput("");
+    setIcsLabelInput("");
     setImportModalVisible(true);
   }, []);
 
@@ -563,6 +581,10 @@ export default function ConfigScreen() {
         const inferredType =
           defaultOutlookTenant === organizationsOutlookTenant ? "business" : "personal";
         setOutlookAccountType(inferredType);
+      }
+      if (option.provider === "ics") {
+        setIcsUrlInput("");
+        setIcsLabelInput("");
       }
       setColorModalVisible(true);
     },
@@ -576,6 +598,80 @@ export default function ConfigScreen() {
 
     setFeedbackMessage(null);
     setErrorMessage(null);
+
+    if (selectedOption.provider === "ics") {
+      let normalizedLink = icsUrlInput.trim();
+      if (!normalizedLink) {
+        setErrorMessage("Informe o link ICS para importar.");
+        return;
+      }
+
+      if (normalizedLink.startsWith("webcal://")) {
+        normalizedLink = `https://${normalizedLink.slice("webcal://".length)}`;
+      }
+
+      try {
+        const parsed = new URL(normalizedLink);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error();
+        }
+      } catch {
+        setErrorMessage("Informe um link ICS válido iniciando com http(s) ou webcal.");
+        return;
+      }
+
+      const label = icsLabelInput.trim();
+      setConnectingProvider("ics");
+
+      try {
+        const response = await fetch(buildApiUrl("/accounts/ics"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            url: normalizedLink,
+            color: selectedCategory.color,
+            label: label || null,
+          }),
+        });
+
+        const data: { account?: AccountDto; error?: string; message?: string } = await response
+          .json()
+          .catch(() => ({}));
+
+        if (!response.ok || !data.account) {
+          const message =
+            (data?.error as string | undefined) ||
+            (data?.message as string | undefined) ||
+            "Falha ao cadastrar o calendário ICS.";
+          throw new Error(message);
+        }
+
+        const account: CalendarAccount = {
+          ...mapAccountDtoToCalendarAccount(data.account),
+          color: data.account.color || selectedCategory.color,
+          icsUrl: data.account.icsUrl ?? normalizedLink,
+          readOnly: true,
+        };
+
+        await upsertCalendarAccount(account);
+        registerCalendarAccount(account);
+        await triggerManualSync(account.id);
+        setFeedbackMessage("Calendário ICS importado com sucesso.");
+        setConnectingProvider(null);
+        setColorModalVisible(false);
+        setImportModalVisible(false);
+        setSelectedOption(null);
+        setIcsUrlInput("");
+        setIcsLabelInput("");
+        setAuthContext(null);
+      } catch (error: any) {
+        setConnectingProvider(null);
+        setErrorMessage(error?.message ?? "Nao foi possivel importar o calendário ICS.");
+      }
+      return;
+    }
 
     const context: AuthContext = {
       provider: selectedOption.provider,
@@ -645,6 +741,8 @@ export default function ConfigScreen() {
     promptOutlookAsync,
     selectedCategory,
     selectedOption,
+    icsUrlInput,
+    icsLabelInput,
     useProxy,
   ]);
 
@@ -698,7 +796,11 @@ export default function ConfigScreen() {
   const renderAccountCard = useCallback(
     (account: CalendarAccount) => {
       const iconName: keyof typeof Ionicons.glyphMap =
-        account.provider === "google" ? "logo-google" : "logo-microsoft";
+        account.provider === "google"
+          ? "logo-google"
+          : account.provider === "outlook"
+          ? "logo-microsoft"
+          : "calendar-outline";
       const statusLabel =
         account.status === "syncing"
           ? "Sincronizando"
@@ -712,18 +814,21 @@ export default function ConfigScreen() {
           ? "#f4a261"
           : "#2a9d8f";
       const categoryLabel = getCalendarCategoryLabel(account.color);
+      const accountLabel = account.displayName?.trim() || account.email;
+      const providerLabel =
+        account.provider === "google"
+          ? "Google Calendar"
+          : account.provider === "outlook"
+          ? "Outlook/Office 365"
+          : "Calendário ICS (somente leitura)";
 
       return (
         <View key={account.id} style={[styles.accountCard, { borderLeftColor: account.color }]}>
           <View style={styles.accountHeader}>
             <Ionicons name={iconName} size={26} color={account.color} />
             <View style={styles.accountInfo}>
-              <Text style={styles.accountEmail}>{account.email}</Text>
-              <Text style={styles.accountProvider}>
-                {account.provider === "google"
-                  ? "Google Calendar"
-                  : "Outlook/Office 365"}
-              </Text>
+              <Text style={styles.accountEmail}>{accountLabel}</Text>
+              <Text style={styles.accountProvider}>{providerLabel}</Text>
             </View>
             <View style={styles.accountCategoryBadge}>
               <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
@@ -892,6 +997,37 @@ export default function ConfigScreen() {
                 </View>
               </View>
             ) : null}
+            {selectedOption?.provider === "ics" ? (
+              <View style={styles.icsSection}>
+                <Text style={styles.sectionTitle}>Link ICS</Text>
+                <TextInput
+                  style={styles.icsInput}
+                  placeholder="https://..."
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  value={icsUrlInput}
+                  onChangeText={setIcsUrlInput}
+                />
+                <Text style={styles.icsHelperText}>
+                  Informe o endereço público do arquivo .ics que deseja importar. Links iniciando
+                  com webcal:// serão convertidos para https.
+                </Text>
+                <Text style={styles.sectionTitle}>Nome para exibição (opcional)</Text>
+                <TextInput
+                  style={styles.icsInput}
+                  placeholder="Ex.: Agenda da empresa"
+                  placeholderTextColor="#94a3b8"
+                  value={icsLabelInput}
+                  onChangeText={setIcsLabelInput}
+                />
+                <Text style={styles.icsHelperText}>
+                  Os eventos serão importados em modo somente leitura e não serão enviados de volta
+                  para sua agenda.
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.colorGrid}>
               {CALENDAR_CATEGORIES.map((category) => {
                 const selected = category.key === selectedCategory.key;
@@ -928,9 +1064,17 @@ export default function ConfigScreen() {
                 <Text style={styles.modalSecondaryText}>Voltar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalPrimaryButton, connectingProvider && styles.modalPrimaryButtonDisabled]}
+                style={[
+                  styles.modalPrimaryButton,
+                  (connectingProvider !== null ||
+                    (selectedOption?.provider === "ics" && !icsUrlInput.trim())) &&
+                    styles.modalPrimaryButtonDisabled,
+                ]}
                 onPress={beginAuth}
-                disabled={connectingProvider !== null}
+                disabled={
+                  connectingProvider !== null ||
+                  (selectedOption?.provider === "ics" && !icsUrlInput.trim())
+                }
               >
                 {connectingProvider ? (
                   <ActivityIndicator color="#fff" />
@@ -1201,6 +1345,23 @@ const styles = StyleSheet.create({
     color: "#0f172a",
   },
   tenantOptionSubtitle: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  icsSection: {
+    gap: 12,
+  },
+  icsInput: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: "#0f172a",
+    backgroundColor: "#f8fafc",
+  },
+  icsHelperText: {
     fontSize: 12,
     color: "#64748b",
   },
