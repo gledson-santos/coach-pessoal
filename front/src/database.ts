@@ -246,16 +246,23 @@ export async function deletarEvento(id: number) {
   return { googleId, outlookId, icsUid, provider, accountId };
 }
 
+const ACTIVE_STATUS_WHERE =
+  "WHERE COALESCE(TRIM(LOWER(status)), '') NOT IN ('removido', 'removida', 'concluido', 'concluida', 'cancelado', 'cancelada', 'excluido', 'excluida', 'deleted', 'done', 'completed')";
+
 export async function buscarEventos(setEventos: (eventos: Evento[]) => void) {
   const db = await dbPromise;
-  const result = await db.getAllAsync(`SELECT * FROM eventos WHERE status IS NULL OR status <> 'removido' ORDER BY inicio ASC`);
+  const result = await db.getAllAsync(
+    `SELECT * FROM eventos ${ACTIVE_STATUS_WHERE} ORDER BY inicio ASC`
+  );
 
   setEventos(result.map(mapRowToEvento));
 }
 
 export async function listarEventos(): Promise<Evento[]> {
   const db = await dbPromise;
-  const result = await db.getAllAsync(`SELECT * FROM eventos WHERE status IS NULL OR status <> 'removido' ORDER BY inicio ASC`);
+  const result = await db.getAllAsync(
+    `SELECT * FROM eventos ${ACTIVE_STATUS_WHERE} ORDER BY inicio ASC`
+  );
   return result.map(mapRowToEvento);
 }
 
@@ -347,7 +354,7 @@ export async function removerEventosSincronizados(
     updatedAt,
     provider,
   ];
-  let query = `UPDATE eventos SET status = ?, updatedAt = ? WHERE provider = ? AND ${column} IS NOT NULL AND TRIM(${column}) <> '' AND (status IS NULL OR status <> 'removido')`;
+  let query = `UPDATE eventos SET status = ?, updatedAt = ? WHERE provider = ? AND ${column} IS NOT NULL AND TRIM(${column}) <> '' AND (status IS NULL OR TRIM(LOWER(status)) <> 'removido')`;
   if (options.accountId) {
     query += " AND accountId = ?";
     params.push(options.accountId);
