@@ -48,7 +48,6 @@ type ProviderOption = {
   title: string;
   subtitle: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  tenantId?: string;
 };
 
 type AccountDto = {
@@ -134,6 +133,7 @@ export default function ConfigScreen() {
   const [colorModalVisible, setColorModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<CalendarCategory>(DEFAULT_CALENDAR_CATEGORY);
   const [selectedOption, setSelectedOption] = useState<ProviderOption | null>(null);
+  const [outlookAccountType, setOutlookAccountType] = useState<"personal" | "business">("personal");
   const [authContext, setAuthContext] = useState<AuthContext | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<CalendarProvider | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -154,23 +154,14 @@ export default function ConfigScreen() {
         icon: "google",
       },
       {
-        id: "outlook-personal",
+        id: "outlook",
         provider: "outlook",
-        title: "Outlook.com",
-        subtitle: "Conta pessoal",
-        icon: "microsoft-outlook",
-        tenantId: outlookOAuthConfig.defaultTenant || "consumers",
-      },
-      {
-        id: "outlook-business",
-        provider: "outlook",
-        title: "Microsoft 365",
-        subtitle: "Conta corporativa",
+        title: "Outlook/Office 365",
+        subtitle: "Conecte contas pessoais ou corporativas",
         icon: "microsoft",
-        tenantId: outlookOAuthConfig.organizationsTenant || "organizations",
       },
     ],
-    [outlookOAuthConfig]
+    []
   );
 
   useEffect(() => {
@@ -552,11 +543,20 @@ export default function ConfigScreen() {
     setImportModalVisible(true);
   }, []);
 
-  const handleSelectProvider = useCallback((option: ProviderOption) => {
-    setSelectedOption(option);
-    setSelectedCategory(DEFAULT_CALENDAR_CATEGORY);
-    setColorModalVisible(true);
-  }, []);
+  const handleSelectProvider = useCallback(
+    (option: ProviderOption) => {
+      setSelectedOption(option);
+      setSelectedCategory(DEFAULT_CALENDAR_CATEGORY);
+      if (option.provider === "outlook") {
+        const defaultTenant = outlookOAuthConfig.defaultTenant || "consumers";
+        const organizationsTenant = outlookOAuthConfig.organizationsTenant || "organizations";
+        const inferredType = defaultTenant === organizationsTenant ? "business" : "personal";
+        setOutlookAccountType(inferredType);
+      }
+      setColorModalVisible(true);
+    },
+    [outlookOAuthConfig]
+  );
 
   const beginAuth = useCallback(async () => {
     if (!selectedOption) {
@@ -569,7 +569,6 @@ export default function ConfigScreen() {
     const context: AuthContext = {
       provider: selectedOption.provider,
       color: selectedCategory.color,
-      tenantId: selectedOption.tenantId,
     };
 
     if (selectedOption.provider === "google") {
@@ -605,6 +604,11 @@ export default function ConfigScreen() {
       return;
     }
 
+    context.tenantId =
+      outlookAccountType === "business"
+        ? outlookOAuthConfig.organizationsTenant || "organizations"
+        : outlookOAuthConfig.defaultTenant || "consumers";
+
     setAuthContext(context);
     setConnectingProvider("outlook");
     try {
@@ -624,11 +628,13 @@ export default function ConfigScreen() {
       setErrorMessage(error?.message ?? "Nao foi possivel iniciar o consentimento da Microsoft.");
     }
   }, [
+    outlookAccountType,
     outlookOAuthConfig,
     promptGoogleAsync,
     promptOutlookAsync,
     selectedCategory,
     selectedOption,
+    useProxy,
   ]);
 
   const closeColorModal = useCallback(() => {
@@ -705,9 +711,7 @@ export default function ConfigScreen() {
               <Text style={styles.accountProvider}>
                 {account.provider === "google"
                   ? "Google Calendar"
-                  : account.tenantId === (outlookOAuthConfig.organizationsTenant || "organizations")
-                  ? "Microsoft 365"
-                  : "Outlook.com"}
+                  : "Outlook/Office 365"}
               </Text>
             </View>
             <View style={styles.accountCategoryBadge}>
@@ -816,6 +820,67 @@ export default function ConfigScreen() {
             <Text style={styles.modalMessage}>
               Escolha se esta agenda será usada para compromissos pessoais ou de trabalho. A cor selecionada será aplicada em todos os cards relacionados.
             </Text>
+            {selectedOption?.provider === "outlook" ? (
+              <View style={styles.tenantSection}>
+                <Text style={styles.sectionTitle}>Tipo de conta Microsoft</Text>
+                <View style={styles.tenantOptions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.tenantOption,
+                      outlookAccountType === "personal" && styles.tenantOptionSelected,
+                    ]}
+                    onPress={() => setOutlookAccountType("personal")}
+                  >
+                    <MaterialCommunityIcons
+                      name="account-circle-outline"
+                      size={26}
+                      color={outlookAccountType === "personal" ? "#1f2d3d" : "#475569"}
+                    />
+                    <View style={styles.tenantTexts}>
+                      <Text
+                        style={[
+                          styles.tenantOptionTitle,
+                          outlookAccountType === "personal" && styles.tenantOptionTitleSelected,
+                        ]}
+                      >
+                        Conta pessoal
+                      </Text>
+                      <Text style={styles.tenantOptionSubtitle}>Outlook.com, Hotmail, Live</Text>
+                    </View>
+                    {outlookAccountType === "personal" ? (
+                      <Ionicons name="checkmark-circle" size={22} color="#2a9d8f" />
+                    ) : null}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.tenantOption,
+                      outlookAccountType === "business" && styles.tenantOptionSelected,
+                    ]}
+                    onPress={() => setOutlookAccountType("business")}
+                  >
+                    <MaterialCommunityIcons
+                      name="briefcase-variant-outline"
+                      size={26}
+                      color={outlookAccountType === "business" ? "#1f2d3d" : "#475569"}
+                    />
+                    <View style={styles.tenantTexts}>
+                      <Text
+                        style={[
+                          styles.tenantOptionTitle,
+                          outlookAccountType === "business" && styles.tenantOptionTitleSelected,
+                        ]}
+                      >
+                        Conta corporativa
+                      </Text>
+                      <Text style={styles.tenantOptionSubtitle}>Microsoft 365, Office 365</Text>
+                    </View>
+                    {outlookAccountType === "business" ? (
+                      <Ionicons name="checkmark-circle" size={22} color="#2a9d8f" />
+                    ) : null}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
             <View style={styles.colorGrid}>
               {CALENDAR_CATEGORIES.map((category) => {
                 const selected = category.key === selectedCategory.key;
@@ -1084,6 +1149,48 @@ const styles = StyleSheet.create({
   },
   providerSubtitle: {
     fontSize: 13,
+    color: "#64748b",
+  },
+  tenantSection: {
+    gap: 12,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1f2d3d",
+  },
+  tenantOptions: {
+    gap: 10,
+  },
+  tenantOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f8fafc",
+  },
+  tenantOptionSelected: {
+    borderColor: "#2a9d8f",
+    backgroundColor: "#e0f7f4",
+  },
+  tenantTexts: {
+    flex: 1,
+    gap: 2,
+  },
+  tenantOptionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  tenantOptionTitleSelected: {
+    color: "#0f172a",
+  },
+  tenantOptionSubtitle: {
+    fontSize: 12,
     color: "#64748b",
   },
   colorGrid: {
