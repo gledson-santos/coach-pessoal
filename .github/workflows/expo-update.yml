@@ -28,7 +28,7 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish EAS Update to develop channel
-        run: npx eas update --channel develop --non-interactive --message "CI: $GITHUB_SHA"
+        run: npx eas update --channel develop --non-interactive --message "CI $GITHUB_SHA"
 
       # opcional: mostra a URL de updates do seu projeto/canal no log
       - name: Show update URL hint
