@@ -165,6 +165,29 @@ const dbPromise = (async () => {
   return database;
 })();
 
+let dbOperationQueue: Promise<void> = Promise.resolve();
+
+const withDatabase = async <T>(
+  operation: (database: SQLite.SQLiteDatabase) => Promise<T>
+): Promise<T> => {
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const previous = dbOperationQueue;
+  dbOperationQueue = previous.then(() => next);
+
+  await previous;
+
+  try {
+    const database = await dbPromise;
+    return await operation(database);
+  } finally {
+    release();
+  }
+};
+
 const calcularFim = (inicioIso: string, tempoEmMinutos: number) => {
   if (!inicioIso || !tempoEmMinutos) {
     return inicioIso;
@@ -217,8 +240,10 @@ const normalizarEvento = (ev: Evento): Evento => {
   };
 };
 
-export async function salvarEvento(ev: Evento) {
-  const db = await dbPromise;
+const salvarEventoInternal = async (
+  db: SQLite.SQLiteDatabase,
+  ev: Evento
+) => {
   const evento = normalizarEvento(ev);
   const tempo = sanitizeTempoExecucao(evento.tempoExecucao);
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
@@ -273,12 +298,16 @@ export async function salvarEvento(ev: Evento) {
   notifyChange();
 
   return resultado.lastInsertRowId ?? null;
+};
+
+export async function salvarEvento(ev: Evento) {
+  return withDatabase((db) => salvarEventoInternal(db, ev));
 }
 
-export async function atualizarEvento(ev: Evento) {
-  if (!ev.id) return;
-
-  const db = await dbPromise;
+const atualizarEventoInternal = async (
+  db: SQLite.SQLiteDatabase,
+  ev: Evento
+) => {
   const evento = normalizarEvento(ev);
   const tempo = sanitizeTempoExecucao(evento.tempoExecucao);
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
@@ -314,98 +343,112 @@ export async function atualizarEvento(ev: Evento) {
   );
 
   notifyChange();
+};
+
+export async function atualizarEvento(ev: Evento) {
+  if (!ev.id) return;
+
+  await withDatabase(async (db) => {
+    await atualizarEventoInternal(db, ev);
+  });
 }
 
 export async function deletarEvento(id: number) {
-  const db = await dbPromise;
-  const registro = await db.getFirstAsync<{
-    googleId: string | null;
-    outlookId: string | null;
-    icsUid: string | null;
-    accountId: string | null;
-    provider: string | null;
-  }>(`SELECT googleId, outlookId, icsUid, accountId, provider FROM eventos WHERE id = ?`, [id]);
-  const updatedAt = new Date().toISOString();
-  await db.runAsync(`UPDATE eventos SET status = ?, updatedAt = ? WHERE id = ?`, [
-    "removido",
-    updatedAt,
-    id,
-  ]);
-  notifyChange();
-  const googleId = registro?.googleId?.trim() ? registro.googleId : null;
-  const outlookId = registro?.outlookId?.trim() ? registro.outlookId : null;
-  const accountId = registro?.accountId ?? null;
-  const provider = (registro?.provider as CalendarProvider | null) ?? null;
-  const icsUid = registro?.icsUid?.trim() ? registro.icsUid : null;
-  return { googleId, outlookId, icsUid, provider, accountId };
+  return withDatabase(async (db) => {
+    const registro = await db.getFirstAsync<{
+      googleId: string | null;
+      outlookId: string | null;
+      icsUid: string | null;
+      accountId: string | null;
+      provider: string | null;
+    }>(`SELECT googleId, outlookId, icsUid, accountId, provider FROM eventos WHERE id = ?`, [id]);
+    const updatedAt = new Date().toISOString();
+    await db.runAsync(`UPDATE eventos SET status = ?, updatedAt = ? WHERE id = ?`, [
+      "removido",
+      updatedAt,
+      id,
+    ]);
+    notifyChange();
+    const googleId = registro?.googleId?.trim() ? registro.googleId : null;
+    const outlookId = registro?.outlookId?.trim() ? registro.outlookId : null;
+    const accountId = registro?.accountId ?? null;
+    const provider = (registro?.provider as CalendarProvider | null) ?? null;
+    const icsUid = registro?.icsUid?.trim() ? registro.icsUid : null;
+    return { googleId, outlookId, icsUid, provider, accountId };
+  });
 }
 
 const ACTIVE_STATUS_WHERE =
   "WHERE COALESCE(TRIM(LOWER(status)), '') NOT IN ('removido', 'removida', 'concluido', 'concluida', 'cancelado', 'cancelada', 'excluido', 'excluida', 'deleted', 'done', 'completed')";
 
 export async function buscarEventos(setEventos: (eventos: Evento[]) => void) {
-  const db = await dbPromise;
-  const result = await db.getAllAsync(
-    `SELECT * FROM eventos ${ACTIVE_STATUS_WHERE} ORDER BY inicio ASC`
-  );
+  await withDatabase(async (db) => {
+    const result = await db.getAllAsync(
+      `SELECT * FROM eventos ${ACTIVE_STATUS_WHERE} ORDER BY inicio ASC`
+    );
 
-  setEventos(result.map(mapRowToEvento));
+    setEventos(result.map(mapRowToEvento));
+  });
 }
 
 export async function listarEventos(): Promise<Evento[]> {
-  const db = await dbPromise;
-  const result = await db.getAllAsync(
-    `SELECT * FROM eventos ${ACTIVE_STATUS_WHERE} ORDER BY inicio ASC`
-  );
-  return result.map(mapRowToEvento);
+  return withDatabase(async (db) => {
+    const result = await db.getAllAsync(
+      `SELECT * FROM eventos ${ACTIVE_STATUS_WHERE} ORDER BY inicio ASC`
+    );
+    return result.map(mapRowToEvento);
+  });
 }
 
 export async function upsertEventoPorGoogleId(ev: Evento) {
   if (!ev.googleId) {
     return salvarEvento(ev);
   }
-  const db = await dbPromise;
-  const existente = await db.getFirstAsync<{ id: number }>(
-    `SELECT id FROM eventos WHERE googleId = ?`,
-    [ev.googleId]
-  );
-  if (existente?.id) {
-    await atualizarEvento({ ...ev, id: existente.id });
-    return existente.id;
-  }
-  return salvarEvento(ev);
+  return withDatabase(async (db) => {
+    const existente = await db.getFirstAsync<{ id: number }>(
+      `SELECT id FROM eventos WHERE googleId = ?`,
+      [ev.googleId]
+    );
+    if (existente?.id) {
+      await atualizarEventoInternal(db, { ...ev, id: existente.id });
+      return existente.id;
+    }
+    return salvarEventoInternal(db, ev);
+  });
 }
 
 export async function upsertEventoPorOutlookId(ev: Evento) {
   if (!ev.outlookId) {
     return salvarEvento(ev);
   }
-  const db = await dbPromise;
-  const existente = await db.getFirstAsync<{ id: number }>(
-    `SELECT id FROM eventos WHERE outlookId = ?`,
-    [ev.outlookId]
-  );
-  if (existente?.id) {
-    await atualizarEvento({ ...ev, id: existente.id });
-    return existente.id;
-  }
-  return salvarEvento(ev);
+  return withDatabase(async (db) => {
+    const existente = await db.getFirstAsync<{ id: number }>(
+      `SELECT id FROM eventos WHERE outlookId = ?`,
+      [ev.outlookId]
+    );
+    if (existente?.id) {
+      await atualizarEventoInternal(db, { ...ev, id: existente.id });
+      return existente.id;
+    }
+    return salvarEventoInternal(db, ev);
+  });
 }
 
 export async function upsertEventoPorIcsUid(ev: Evento) {
   if (!ev.icsUid) {
     return salvarEvento(ev);
   }
-  const db = await dbPromise;
-  const existente = await db.getFirstAsync<{ id: number }>(
-    `SELECT id FROM eventos WHERE icsUid = ? AND accountId = ?`,
-    [ev.icsUid, ev.accountId ?? null]
-  );
-  if (existente?.id) {
-    await atualizarEvento({ ...ev, id: existente.id });
-    return existente.id;
-  }
-  return salvarEvento(ev);
+  return withDatabase(async (db) => {
+    const existente = await db.getFirstAsync<{ id: number }>(
+      `SELECT id FROM eventos WHERE icsUid = ? AND accountId = ?`,
+      [ev.icsUid, ev.accountId ?? null]
+    );
+    if (existente?.id) {
+      await atualizarEventoInternal(db, { ...ev, id: existente.id });
+      return existente.id;
+    }
+    return salvarEventoInternal(db, ev);
+  });
 }
 
 export async function atualizarGoogleInfo(
@@ -430,9 +473,10 @@ export async function atualizarGoogleInfo(
   }
 
   valores.push(id);
-  const db = await dbPromise;
-  await db.runAsync(`UPDATE eventos SET ${campos.join(", ")} WHERE id = ?`, valores);
-  notifyChange();
+  await withDatabase(async (db) => {
+    await db.runAsync(`UPDATE eventos SET ${campos.join(", ")} WHERE id = ?`, valores);
+    notifyChange();
+  });
 }
 
 export { dbPromise as db };
@@ -441,23 +485,24 @@ export async function removerEventosSincronizados(
   provider: "google" | "outlook" | "ics",
   options: { accountId?: string } = {}
 ) {
-  const db = await dbPromise;
-  const column = provider === "google" ? "googleId" : provider === "outlook" ? "outlookId" : "icsUid";
-  const updatedAt = new Date().toISOString();
-  const params: any[] = [
-    "removido",
-    updatedAt,
-    provider,
-  ];
-  let query = `UPDATE eventos SET status = ?, updatedAt = ? WHERE provider = ? AND ${column} IS NOT NULL AND TRIM(${column}) <> '' AND (status IS NULL OR TRIM(LOWER(status)) <> 'removido')`;
-  if (options.accountId) {
-    query += " AND accountId = ?";
-    params.push(options.accountId);
-  }
-  const result = await db.runAsync(query, params);
-  if ((result?.changes ?? 0) > 0) {
-    notifyChange();
-  }
+  await withDatabase(async (db) => {
+    const column = provider === "google" ? "googleId" : provider === "outlook" ? "outlookId" : "icsUid";
+    const updatedAt = new Date().toISOString();
+    const params: any[] = [
+      "removido",
+      updatedAt,
+      provider,
+    ];
+    let query = `UPDATE eventos SET status = ?, updatedAt = ? WHERE provider = ? AND ${column} IS NOT NULL AND TRIM(${column}) <> '' AND (status IS NULL OR TRIM(LOWER(status)) <> 'removido')`;
+    if (options.accountId) {
+      query += " AND accountId = ?";
+      params.push(options.accountId);
+    }
+    const result = await db.runAsync(query, params);
+    if ((result?.changes ?? 0) > 0) {
+      notifyChange();
+    }
+  });
 }
 
 export const subscribeEventoChanges = (listener: () => void) => {
@@ -470,18 +515,19 @@ export const subscribeEventoChanges = (listener: () => void) => {
 export async function listarEventosAtualizadosDesde(
   updatedAt: string | null | undefined
 ): Promise<Evento[]> {
-  const db = await dbPromise;
-  if (updatedAt && updatedAt.trim()) {
+  return withDatabase(async (db) => {
+    if (updatedAt && updatedAt.trim()) {
+      const result = await db.getAllAsync(
+        `SELECT * FROM eventos WHERE updatedAt > ? ORDER BY updatedAt ASC`,
+        [updatedAt]
+      );
+      return result.map(mapRowToEvento);
+    }
     const result = await db.getAllAsync(
-      `SELECT * FROM eventos WHERE updatedAt > ? ORDER BY updatedAt ASC`,
-      [updatedAt]
+      `SELECT * FROM eventos ORDER BY updatedAt ASC`
     );
     return result.map(mapRowToEvento);
-  }
-  const result = await db.getAllAsync(
-    `SELECT * FROM eventos ORDER BY updatedAt ASC`
-  );
-  return result.map(mapRowToEvento);
+  });
 }
 
 export async function encontrarEventoPorSyncId(
@@ -490,13 +536,14 @@ export async function encontrarEventoPorSyncId(
   if (!syncId || !syncId.trim()) {
     return null;
   }
-  const db = await dbPromise;
-  const row = await db.getFirstAsync(
-    `SELECT * FROM eventos WHERE syncId = ? LIMIT 1`,
-    [syncId]
-  );
-  if (!row) {
-    return null;
-  }
-  return mapRowToEvento(row);
+  return withDatabase(async (db) => {
+    const row = await db.getFirstAsync(
+      `SELECT * FROM eventos WHERE syncId = ? LIMIT 1`,
+      [syncId]
+    );
+    if (!row) {
+      return null;
+    }
+    return mapRowToEvento(row);
+  });
 }
