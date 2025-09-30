@@ -389,7 +389,7 @@ export async function deletarEvento(id: number) {
 }
 
 const ACTIVE_STATUS_WHERE =
-  "WHERE COALESCE(TRIM(LOWER(status)), '') NOT IN ('removido', 'removida', 'concluido', 'concluida', 'cancelado', 'cancelada', 'excluido', 'excluida', 'deleted', 'done', 'completed')";
+  "WHERE COALESCE(TRIM(LOWER(status)), '') NOT IN ('removido', 'removida', 'concluido', 'concluida', 'cancelado', 'cancelada', 'canceled', 'cancelled', 'excluido', 'excluida', 'deleted', 'done', 'completed')";
 
 export async function buscarEventos(setEventos: (eventos: Evento[]) => void) {
   await withDatabase(async (db) => {

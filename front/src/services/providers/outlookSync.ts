@@ -11,6 +11,7 @@ import {
 import { persistProviderTokens } from "../calendarProviderActions";
 import { buildApiUrl } from "../../config/api";
 import { getOutlookOAuthConfig } from "../../config/outlookOAuth";
+import { triggerEventSync } from "../eventSync";
 
 const TOKEN_ENDPOINT = (tenant: string) =>
   `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`;
@@ -302,6 +303,12 @@ export const syncOutlookAccount = async (account: CalendarAccount) => {
   await removerEventosSincronizados("outlook", { accountId: account.id });
   for (const evento of eventos) {
     await upsertEventoPorOutlookId(evento);
+  }
+
+  try {
+    await triggerEventSync();
+  } catch (error) {
+    console.warn("[outlook] failed to trigger sync after provider import", error);
   }
 
   await updateCalendarAccountStatus(account.id, {

@@ -10,6 +10,8 @@ import { Evento, salvarEvento, listarEventos, atualizarEvento } from "../databas
 import TaskModal from "../components/TaskModal";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
 import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
+import { triggerEventSync } from "../services/eventSync";
+import { filterVisibleEvents } from "../utils/eventFilters";
 
 type EventoAgenda = Evento;
 
@@ -63,7 +65,8 @@ export default function AgendaScreen() {
 
   const carregarEventos = useCallback(async () => {
     const lista = await listarEventos();
-    setEventos(lista as EventoAgenda[]);
+    const visiveis = filterVisibleEvents(lista);
+    setEventos(visiveis as EventoAgenda[]);
   }, []);
   const [modoSemana, setModoSemana] = useState(false);
   const [larguraTimeline, setLarguraTimeline] = useState(0);
@@ -659,6 +662,11 @@ export default function AgendaScreen() {
             await salvarEvento(task);
           }
           await carregarEventos();
+          try {
+            await triggerEventSync();
+          } catch (error) {
+            console.warn("[agenda] failed to trigger sync after save", error);
+          }
         }}
         initialData={tarefaSelecionada}
       />

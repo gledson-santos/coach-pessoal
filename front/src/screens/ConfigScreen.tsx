@@ -38,6 +38,7 @@ import {
   triggerManualSync,
 } from "../services/calendarSyncManager";
 import { removerEventosSincronizados } from "../database";
+import { triggerEventSync } from "../services/eventSync";
 import { loadRemoteOAuthConfig } from "../services/oauthConfig";
 import { CALENDAR_CATEGORIES, CalendarCategory, DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel } from "../constants/calendarCategories";
 
@@ -781,6 +782,11 @@ export default function ConfigScreen() {
         accountId: disconnectingAccount.id,
       });
       await removeCalendarAccount(disconnectingAccount.id);
+      try {
+        await triggerEventSync();
+      } catch (error) {
+        console.warn("[config] failed to trigger sync after disconnect", error);
+      }
       setFeedbackMessage("Conta desconectada e tarefas marcadas como removidas.");
     } catch (error: any) {
       console.error("[disconnect] erro", error);

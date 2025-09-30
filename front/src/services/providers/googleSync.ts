@@ -11,6 +11,7 @@ import {
 import { persistProviderTokens } from "../calendarProviderActions";
 import { buildApiUrl } from "../../config/api";
 import { GOOGLE_OAUTH_CONFIG } from "../../config/googleOAuth";
+import { triggerEventSync } from "../eventSync";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars";
@@ -300,6 +301,12 @@ export const syncGoogleAccount = async (account: CalendarAccount) => {
   await removerEventosSincronizados("google", { accountId: account.id });
   for (const evento of eventos) {
     await upsertEventoPorGoogleId(evento);
+  }
+
+  try {
+    await triggerEventSync();
+  } catch (error) {
+    console.warn("[google] failed to trigger sync after provider import", error);
   }
 
   await updateCalendarAccountStatus(account.id, {

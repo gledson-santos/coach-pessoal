@@ -15,6 +15,7 @@ import { DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel, normalizeCalendarC
 import { deleteProviderEvent } from "../services/calendarProviderActions";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
 import { notifyAccountLocalChange } from "../services/calendarSyncManager";
+import { triggerEventSync } from "../services/eventSync";
 import {
   Evento,
   atualizarEvento,
@@ -22,6 +23,7 @@ import {
   listarEventos,
   salvarEvento,
 } from "../database";
+import { filterVisibleEvents } from "../utils/eventFilters";
 type Task = Evento;
 const parseDate = (value?: string) => {
   if (!value) return null;
@@ -120,7 +122,8 @@ export default function TasksScreen() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const carregarTarefas = useCallback(async () => {
     const eventos = await listarEventos();
-    setTasks(eventos as Task[]);
+    const visiveis = filterVisibleEvents(eventos);
+    setTasks(visiveis as Task[]);
   }, []);
 
   useEffect(() => {
@@ -263,6 +266,11 @@ export default function TasksScreen() {
       await salvarEvento(merged);
     }
     await carregarTarefas();
+    try {
+      await triggerEventSync();
+    } catch (error) {
+      console.warn("[tasks] failed to trigger sync after save", error);
+    }
   };
   const handleDelete = async (id: number) => {
     const deletedInfo = await deletarEvento(id);
@@ -286,6 +294,11 @@ export default function TasksScreen() {
       if (accountId) {
         notifyAccountLocalChange(accountId);
       }
+    }
+    try {
+      await triggerEventSync();
+    } catch (error) {
+      console.warn("[tasks] failed to trigger sync after delete", error);
     }
   };
   return (
