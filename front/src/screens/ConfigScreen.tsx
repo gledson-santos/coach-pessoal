@@ -517,7 +517,7 @@ export default function ConfigScreen() {
 
       [...registered].forEach((id) => {
         if (!list.some((account) => account.id === id)) {
-          unregisterCalendarAccount(id);
+          void unregisterCalendarAccount(id);
           registered.delete(id);
         }
       });
@@ -776,10 +776,10 @@ export default function ConfigScreen() {
       await fetch(buildApiUrl(`/accounts/${disconnectingAccount.id}`), {
         method: "DELETE",
       });
+      await unregisterCalendarAccount(disconnectingAccount.id);
       await removerEventosSincronizados(disconnectingAccount.provider, {
         accountId: disconnectingAccount.id,
       });
-      unregisterCalendarAccount(disconnectingAccount.id);
       await removeCalendarAccount(disconnectingAccount.id);
       setFeedbackMessage("Conta desconectada e tarefas marcadas como removidas.");
     } catch (error: any) {

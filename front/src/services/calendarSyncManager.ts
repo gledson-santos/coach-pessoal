@@ -16,6 +16,8 @@ type SyncRunner = {
   immediateTimer: ReturnType<typeof setTimeout> | null;
   syncing: boolean;
   pending: boolean;
+  currentSyncPromise: Promise<void> | null;
+  stopped: boolean;
 };
 
 const runners = new Map<string, SyncRunner>();
@@ -51,7 +53,7 @@ const performProviderSync = async (account: CalendarAccount) => {
 
 const triggerSync = async (accountId: string) => {
   const runner = runners.get(accountId);
-  if (!runner) {
+  if (!runner || runner.stopped) {
     return;
   }
   if (runner.syncing) {
@@ -62,26 +64,36 @@ const triggerSync = async (accountId: string) => {
   runner.syncing = true;
   runner.pending = false;
 
-  try {
-    await performProviderSync(runner.account);
-  } catch (error: any) {
-    console.error(`[sync] falha ao sincronizar conta ${runner.account.email}`, error);
-    await updateCalendarAccountStatus(runner.account.id, {
-      status: "error",
-      errorMessage: error?.message ?? "Falha ao sincronizar",
-    });
-  } finally {
-    runner.syncing = false;
-    if (runner.pending) {
-      runner.pending = false;
-      scheduleImmediateSync(runner.account.id);
+  const execution = (async () => {
+    try {
+      await performProviderSync(runner.account);
+    } catch (error: any) {
+      console.error(`[sync] falha ao sincronizar conta ${runner.account.email}`, error);
+      await updateCalendarAccountStatus(runner.account.id, {
+        status: "error",
+        errorMessage: error?.message ?? "Falha ao sincronizar",
+      });
+    } finally {
+      runner.syncing = false;
+      if (runner.pending && !runner.stopped) {
+        runner.pending = false;
+        scheduleImmediateSync(runner.account.id);
+      }
     }
+  })();
+
+  runner.currentSyncPromise = execution;
+
+  try {
+    await execution;
+  } finally {
+    runner.currentSyncPromise = null;
   }
 };
 
 const scheduleImmediateSync = (accountId: string, delay = IMMEDIATE_SYNC_DELAY) => {
   const runner = runners.get(accountId);
-  if (!runner || !isAutoSyncEnabled(runner.account)) {
+  if (!runner || runner.stopped || !isAutoSyncEnabled(runner.account)) {
     return;
   }
   if (runner.immediateTimer) {
@@ -96,7 +108,7 @@ const scheduleImmediateSync = (accountId: string, delay = IMMEDIATE_SYNC_DELAY) 
 
 const startInterval = (accountId: string) => {
   const runner = runners.get(accountId);
-  if (!runner) {
+  if (!runner || runner.stopped) {
     return;
   }
   if (!isAutoSyncEnabled(runner.account)) {
@@ -118,6 +130,7 @@ export const registerCalendarAccount = (account: CalendarAccount) => {
   if (existing) {
     const previousAccount = existing.account;
     existing.account = account;
+    existing.stopped = false;
 
     const wasAutoSyncEnabled = isAutoSyncEnabled(previousAccount);
     const isAutoSyncCurrentlyEnabled = isAutoSyncEnabled(account);
@@ -145,6 +158,8 @@ export const registerCalendarAccount = (account: CalendarAccount) => {
     immediateTimer: null,
     syncing: false,
     pending: false,
+    currentSyncPromise: null,
+    stopped: false,
   };
 
   runners.set(account.id, runner);
@@ -158,12 +173,21 @@ export const initializeCalendarSyncEngine = (accounts: CalendarAccount[] = getCa
   accounts.forEach((account) => registerCalendarAccount(account));
 };
 
-export const unregisterCalendarAccount = (accountId: string) => {
+export const unregisterCalendarAccount = async (accountId: string) => {
   const runner = runners.get(accountId);
   if (!runner) {
     return;
   }
+  runner.stopped = true;
   clearRunnerTimers(runner);
+  const current = runner.currentSyncPromise;
+  if (current) {
+    try {
+      await current;
+    } catch (error) {
+      console.warn(`[sync] erro ao aguardar termino da sincronizacao`, error);
+    }
+  }
   runners.delete(accountId);
 };
 
