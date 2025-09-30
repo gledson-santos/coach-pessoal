@@ -12,8 +12,9 @@ import {
 import { normalizeHexColor } from "./utils/colors";
 import { decodeIdTokenPayload } from "./utils/jwt";
 const app = express();
+const MAX_JSON_BODY_SIZE = 5 * 1024 * 1024; // 5MB
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: MAX_JSON_BODY_SIZE }));
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
