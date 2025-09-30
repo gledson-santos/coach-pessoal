@@ -16,6 +16,8 @@ const TOKEN_ENDPOINT = (tenant: string) =>
   `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`;
 const CALENDAR_VIEW_ENDPOINT = "https://graph.microsoft.com/v1.0/me/calendarview";
 const DEFAULT_DIFFICULTY = "Media";
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const FIRST_SYNC_CUTOFF_DAYS = 3;
 
 const diferencaEmMinutos = (inicio?: string | null, fim?: string | null) => {
   if (!inicio || !fim) {
@@ -235,13 +237,20 @@ const mapOutlookToEvento = (
   };
 };
 
-const buildTimeRangeQuery = () => {
-  const now = new Date();
-  const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+const buildTimeRangeQuery = (account: CalendarAccount) => {
+  const now = Date.now();
+  const past = new Date(now - 7 * DAY_IN_MS);
+  const defaultFuture = new Date(now + 30 * DAY_IN_MS);
+  const isFirstSync = !account.lastSync;
+  const firstSyncLimit = new Date(now - FIRST_SYNC_CUTOFF_DAYS * DAY_IN_MS);
+  const effectiveEnd = isFirstSync ? firstSyncLimit : defaultFuture;
+  const sanitizedEnd = effectiveEnd.getTime() < past.getTime() ? past : effectiveEnd;
+
   return {
     start: past.toISOString(),
-    end: future.toISOString(),
+    end: sanitizedEnd.toISOString(),
+    endTimestamp: sanitizedEnd.getTime(),
+    enforceMax: isFirstSync,
   };
 };
 
@@ -252,7 +261,7 @@ export const syncOutlookAccount = async (account: CalendarAccount) => {
   });
 
   const accessToken = await ensureAccessToken(account);
-  const { start, end } = buildTimeRangeQuery();
+  const { start, end, endTimestamp, enforceMax } = buildTimeRangeQuery(account);
 
   let nextLink: string | null = `${CALENDAR_VIEW_ENDPOINT}?startdatetime=${encodeURIComponent(
     start
@@ -276,6 +285,12 @@ export const syncOutlookAccount = async (account: CalendarAccount) => {
     for (const item of items) {
       const evento = mapOutlookToEvento(item, account);
       if (evento) {
+        if (enforceMax) {
+          const inicio = new Date(evento.inicio ?? evento.data ?? "");
+          if (!Number.isNaN(inicio.getTime()) && inicio.getTime() > endTimestamp) {
+            continue;
+          }
+        }
         eventos.push(evento);
       }
     }
