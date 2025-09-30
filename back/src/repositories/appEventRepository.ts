@@ -1,4 +1,4 @@
-import { RowDataPacket } from "mysql2";
+import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { withConnection } from "../db";
 
 export type AppEventSyncPayload = {
@@ -20,6 +20,7 @@ export type AppEventSyncPayload = {
   icsUid: string | null;
   updatedAt: string;
   createdAt: string | null;
+  integrationDate: string | null;
 };
 
 type DbAppEvent = RowDataPacket & {
@@ -41,6 +42,7 @@ type DbAppEvent = RowDataPacket & {
   ics_uid: string | null;
   created_at: Date;
   updated_at: Date;
+  integration_date: Date | null;
 };
 
 const sanitizeString = (value: unknown): string | null => {
@@ -94,6 +96,7 @@ const toSyncPayload = (row: DbAppEvent): AppEventSyncPayload => ({
   icsUid: row.ics_uid ?? null,
   updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
   createdAt: row.created_at ? row.created_at.toISOString() : null,
+  integrationDate: row.integration_date ? row.integration_date.toISOString() : null,
 });
 
 export const appEventRepository = {
@@ -144,8 +147,8 @@ export const appEventRepository = {
             `INSERT INTO app_events (
               id, title, notes, event_date, event_type, difficulty, duration_minutes,
               start_at, end_at, color, status, provider, account_id, google_id,
-              outlook_id, ics_uid, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              outlook_id, ics_uid, created_at, updated_at, integration_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
               title = IF(VALUES(updated_at) >= updated_at, VALUES(title), title),
               notes = IF(VALUES(updated_at) >= updated_at, VALUES(notes), notes),
@@ -162,7 +165,8 @@ export const appEventRepository = {
               google_id = IF(VALUES(updated_at) >= updated_at, VALUES(google_id), google_id),
               outlook_id = IF(VALUES(updated_at) >= updated_at, VALUES(outlook_id), outlook_id),
               ics_uid = IF(VALUES(updated_at) >= updated_at, VALUES(ics_uid), ics_uid),
-              updated_at = IF(VALUES(updated_at) >= updated_at, VALUES(updated_at), updated_at)`,
+              updated_at = IF(VALUES(updated_at) >= updated_at, VALUES(updated_at), updated_at),
+              integration_date = IF(VALUES(updated_at) >= updated_at, VALUES(integration_date), integration_date)`,
             [
               id,
               title,
@@ -182,6 +186,7 @@ export const appEventRepository = {
               icsUid,
               createdAt,
               updatedAt,
+              null,
             ]
           );
         }
@@ -191,6 +196,44 @@ export const appEventRepository = {
         await conn.rollback();
         throw error;
       }
+    });
+  },
+
+  async listPendingIntegration(limit: number, offset: number): Promise<AppEventSyncPayload[]> {
+    return withConnection(async (conn) => {
+      const [rows] = await conn.query<DbAppEvent[]>(
+        `SELECT * FROM app_events
+         WHERE integration_date IS NULL
+         ORDER BY updated_at ASC
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
+      );
+      return rows.map(toSyncPayload);
+    });
+  },
+
+  async countPendingIntegration(): Promise<number> {
+    return withConnection(async (conn) => {
+      const [rows] = await conn.query<(RowDataPacket & { total: number })[]>(
+        "SELECT COUNT(*) AS total FROM app_events WHERE integration_date IS NULL"
+      );
+      const total = rows[0]?.total ?? 0;
+      return Number(total) || 0;
+    });
+  },
+
+  async markIntegrated(ids: string[], integrationDate: Date | null): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+
+    return withConnection(async (conn) => {
+      const placeholders = ids.map(() => "?").join(", ");
+      const query = `UPDATE app_events SET integration_date = ? WHERE id IN (${placeholders})`;
+      const params: any[] = [integrationDate];
+      params.push(...ids);
+      const [result] = await conn.query<ResultSetHeader>(query, params);
+      return result.affectedRows ?? 0;
     });
   },
 };

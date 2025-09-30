@@ -133,6 +133,34 @@ const sanitizeDuration = (value: unknown, fallback = 15): number => {
   return Math.max(1, Math.round(fallback));
 };
 
+const clamp = (value: number, min: number, max: number) => {
+  return Math.min(Math.max(value, min), max);
+};
+
+const parseNumericParam = (
+  value: unknown,
+  fallback: number,
+  { min, max }: { min: number; max: number }
+) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return clamp(Math.floor(value), min, max);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      return clamp(Math.floor(parsed), min, max);
+    }
+  }
+  return clamp(Math.floor(fallback), min, max);
+};
+
+const getSingleQueryValue = (value: undefined | string | string[]): string | undefined => {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
+};
+
 const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null => {
   if (!value || typeof value !== "object") {
     return null;
@@ -161,6 +189,7 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
   const outlookId = sanitizeSyncString(value.outlookId);
   const icsUid = sanitizeSyncString(value.icsUid);
   const duration = sanitizeDuration(value.duration);
+  const integrationDate = normalizeIsoString(value.integrationDate);
 
   return {
     id,
@@ -181,6 +210,7 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
     icsUid,
     updatedAt,
     createdAt,
+    integrationDate: integrationDate ?? null,
   };
 };
 app.post("/oauth/google/exchange", async (req, res) => {
@@ -557,6 +587,76 @@ app.post("/sync/events", async (req, res) => {
   } catch (error) {
     console.error("[sync] failed to process events", error);
     res.status(500).json({ error: "sync_failed" });
+  }
+});
+
+app.get("/integration/events", async (req, res) => {
+  const pageParam = getSingleQueryValue(req.query.page as any);
+  const pageSizeParam = getSingleQueryValue(req.query.pageSize as any);
+  const page = parseNumericParam(pageParam, 1, { min: 1, max: 100000 });
+  const pageSize = parseNumericParam(pageSizeParam, 100, { min: 1, max: 500 });
+  const offset = (page - 1) * pageSize;
+
+  try {
+    const [events, totalItems] = await Promise.all([
+      appEventRepository.listPendingIntegration(pageSize, offset),
+      appEventRepository.countPendingIntegration(),
+    ]);
+    const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+    const hasMore = offset + events.length < totalItems;
+
+    res.json({
+      events,
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+        hasMore,
+      },
+    });
+  } catch (error) {
+    console.error("[integration] failed to list events", error);
+    res.status(500).json({ error: "integration_list_failed" });
+  }
+});
+
+app.post("/integration/events/mark", async (req, res) => {
+  const body = (req.body ?? {}) as { ids?: unknown; integrationDate?: unknown };
+  const ids = Array.isArray(body.ids)
+    ? body.ids
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter((value): value is string => value.length > 0)
+    : [];
+
+  if (ids.length === 0) {
+    res.status(400).json({ error: "invalid_ids" });
+    return;
+  }
+
+  let integrationDate: Date | null;
+  if (body.integrationDate === null) {
+    integrationDate = null;
+  } else if (body.integrationDate === undefined) {
+    integrationDate = new Date();
+  } else {
+    const iso = normalizeIsoString(body.integrationDate);
+    if (!iso) {
+      res.status(400).json({ error: "invalid_integration_date" });
+      return;
+    }
+    integrationDate = new Date(iso);
+  }
+
+  try {
+    const updated = await appEventRepository.markIntegrated(ids, integrationDate);
+    res.json({
+      updated,
+      integrationDate: integrationDate ? integrationDate.toISOString() : null,
+    });
+  } catch (error) {
+    console.error("[integration] failed to mark events", error);
+    res.status(500).json({ error: "integration_mark_failed" });
   }
 });
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
