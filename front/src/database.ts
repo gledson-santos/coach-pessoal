@@ -240,9 +240,14 @@ const normalizarEvento = (ev: Evento): Evento => {
   };
 };
 
+type InternalSaveOptions = {
+  skipNotify?: boolean;
+};
+
 const salvarEventoInternal = async (
   db: SQLite.SQLiteDatabase,
-  ev: Evento
+  ev: Evento,
+  options: InternalSaveOptions = {}
 ) => {
   const evento = normalizarEvento(ev);
   const tempo = sanitizeTempoExecucao(evento.tempoExecucao);
@@ -295,7 +300,9 @@ const salvarEventoInternal = async (
     ]
   );
 
-  notifyChange();
+  if (!options.skipNotify) {
+    notifyChange();
+  }
 
   return resultado.lastInsertRowId ?? null;
 };
@@ -306,7 +313,8 @@ export async function salvarEvento(ev: Evento) {
 
 const atualizarEventoInternal = async (
   db: SQLite.SQLiteDatabase,
-  ev: Evento
+  ev: Evento,
+  options: InternalSaveOptions = {}
 ) => {
   const evento = normalizarEvento(ev);
   const tempo = sanitizeTempoExecucao(evento.tempoExecucao);
@@ -342,7 +350,9 @@ const atualizarEventoInternal = async (
     ]
   );
 
-  notifyChange();
+  if (!options.skipNotify) {
+    notifyChange();
+  }
 };
 
 export async function atualizarEvento(ev: Evento) {
@@ -434,20 +444,34 @@ export async function upsertEventoPorOutlookId(ev: Evento) {
   });
 }
 
+const upsertEventoPorIcsUidInternal = async (
+  db: SQLite.SQLiteDatabase,
+  ev: Evento,
+  options: InternalSaveOptions = {}
+) => {
+  if (!ev.icsUid) {
+    return salvarEventoInternal(db, ev, options);
+  }
+
+  const existente = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM eventos WHERE icsUid = ? AND accountId = ?`,
+    [ev.icsUid, ev.accountId ?? null]
+  );
+
+  if (existente?.id) {
+    await atualizarEventoInternal(db, { ...ev, id: existente.id }, options);
+    return existente.id;
+  }
+
+  return salvarEventoInternal(db, ev, options);
+};
+
 export async function upsertEventoPorIcsUid(ev: Evento) {
   if (!ev.icsUid) {
     return salvarEvento(ev);
   }
   return withDatabase(async (db) => {
-    const existente = await db.getFirstAsync<{ id: number }>(
-      `SELECT id FROM eventos WHERE icsUid = ? AND accountId = ?`,
-      [ev.icsUid, ev.accountId ?? null]
-    );
-    if (existente?.id) {
-      await atualizarEventoInternal(db, { ...ev, id: existente.id });
-      return existente.id;
-    }
-    return salvarEventoInternal(db, ev);
+    return upsertEventoPorIcsUidInternal(db, ev);
   });
 }
 
@@ -501,6 +525,55 @@ export async function removerEventosSincronizados(
     const result = await db.runAsync(query, params);
     if ((result?.changes ?? 0) > 0) {
       notifyChange();
+    }
+  });
+}
+
+const beginTransaction = async (db: SQLite.SQLiteDatabase) => {
+  await db.execAsync("BEGIN IMMEDIATE TRANSACTION");
+};
+
+const rollbackTransaction = async (db: SQLite.SQLiteDatabase) => {
+  try {
+    await db.execAsync("ROLLBACK");
+  } catch (error) {
+    console.warn("[database] rollback failed", error);
+  }
+};
+
+const commitTransaction = async (db: SQLite.SQLiteDatabase) => {
+  await db.execAsync("COMMIT");
+};
+
+export async function substituirEventosIcs(
+  accountId: string,
+  eventos: Evento[]
+) {
+  await withDatabase(async (db) => {
+    await beginTransaction(db);
+
+    try {
+      const updatedAt = new Date().toISOString();
+      await db.runAsync(
+        `UPDATE eventos
+         SET status = ?, updatedAt = ?
+         WHERE provider = ?
+           AND icsUid IS NOT NULL
+           AND TRIM(icsUid) <> ''
+           AND (status IS NULL OR TRIM(LOWER(status)) <> 'removido')
+           AND accountId = ?`,
+        ["removido", updatedAt, "ics", accountId]
+      );
+
+      for (const evento of eventos) {
+        await upsertEventoPorIcsUidInternal(db, evento, { skipNotify: true });
+      }
+
+      await commitTransaction(db);
+      notifyChange();
+    } catch (error) {
+      await rollbackTransaction(db);
+      throw error;
     }
   });
 }

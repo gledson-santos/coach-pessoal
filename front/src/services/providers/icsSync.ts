@@ -1,10 +1,6 @@
 import { buildApiUrl } from "../../config/api";
 import { CalendarAccount } from "../../types/calendar";
-import {
-  Evento,
-  removerEventosSincronizados,
-  upsertEventoPorIcsUid,
-} from "../../database";
+import { Evento, substituirEventosIcs } from "../../database";
 import { updateCalendarAccountStatus } from "../calendarAccountsStore";
 
 const DEFAULT_DIFFICULTY = "Media";
@@ -292,10 +288,7 @@ export const syncIcsAccount = async (account: CalendarAccount) => {
     }
   }
 
-  await removerEventosSincronizados("ics", { accountId: account.id });
-  for (const evento of eventos) {
-    await upsertEventoPorIcsUid(evento);
-  }
+  await substituirEventosIcs(account.id, eventos);
 
   await updateCalendarAccountStatus(account.id, {
     status: "idle",
