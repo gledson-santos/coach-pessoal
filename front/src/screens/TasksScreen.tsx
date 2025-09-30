@@ -112,9 +112,6 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
       <View style={[styles.cardAccent, { backgroundColor: calendarColor }]} />
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {task.titulo}
-          </Text>
           <View style={styles.cardHeaderRight}>
             {recurring && (
               <View style={styles.recurringTag}>
@@ -127,6 +124,9 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
             </View>
             <Ionicons name="create-outline" size={20} style={styles.cardHeaderIcon} />
           </View>
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {task.titulo}
+          </Text>
         </View>
         <View style={styles.cardMetaRow}>
           <Ionicons name="time-outline" size={16} style={styles.metaIcon} />
@@ -466,8 +466,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    flexDirection: "column",
     alignItems: "flex-start",
     gap: 12,
   },
@@ -475,6 +474,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    alignSelf: "flex-end",
   },
   recurringTag: {
     backgroundColor: "#264653",
@@ -506,11 +506,10 @@ const styles = StyleSheet.create({
     color: "#0f172a",
   },
   cardTitle: {
-    flex: 1,
     fontSize: 17,
     fontWeight: "700",
     color: "#1f2d3d",
-    marginRight: 12,
+    alignSelf: "stretch",
   },
   cardHeaderIcon: {
     color: "#1c6b73",
