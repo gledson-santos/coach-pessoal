@@ -398,6 +398,7 @@ export default function AgendaScreen() {
                 if (isEventoCurto) {
                   estiloDinamico.paddingVertical = 4;
                   estiloDinamico.justifyContent = "center";
+                  estiloDinamico.alignItems = "flex-start";
                 }
 
                 return (
@@ -780,13 +781,14 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 14,
     lineHeight: 18,
+    textAlign: "left",
   },
   eventoTextoCurto: {
     fontSize: 12,
     lineHeight: 16,
   },
   eventoTextoShortDuration: {
-    textAlign: "center",
+    textAlign: "left",
     width: "100%",
   },
   eventoHora: { color: "#fff", fontSize: 12, marginTop: 4, lineHeight: 16 },
