@@ -65,6 +65,27 @@ const calculateOpenDays = (task: Task) => {
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   return days >= 0 ? days : 0;
 };
+const isRecurringTask = (task: Task) => {
+  const normalizedType = (task.tipo ?? "").toLowerCase();
+  if (normalizedType.includes("recorr")) {
+    return true;
+  }
+
+  if (typeof task.icsUid === "string" && task.icsUid.includes("::")) {
+    return true;
+  }
+
+  if (typeof task.googleId === "string" && task.googleId.includes("_")) {
+    return true;
+  }
+
+  if (typeof task.outlookId === "string" && task.outlookId.includes("_")) {
+    return true;
+  }
+
+  return false;
+};
+
 type TaskCardProps = {
   task: Task;
   onEdit: () => void;
@@ -81,6 +102,7 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
   const calendarColor = normalizeCalendarColor(task.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
   const categoryLabel = getCalendarCategoryLabel(task.cor ?? null);
   const badgeBackground = `${calendarColor}26`;
+  const recurring = isRecurringTask(task);
   return (
     <TouchableOpacity
       style={styles.cardWrapper}
@@ -94,6 +116,11 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
             {task.titulo}
           </Text>
           <View style={styles.cardHeaderRight}>
+            {recurring && (
+              <View style={styles.recurringTag}>
+                <Text style={styles.recurringTagText}>Recorrente</Text>
+              </View>
+            )}
             <View style={[styles.cardCategoryBadge, { backgroundColor: badgeBackground }]}>
               <View style={[styles.cardCategoryDot, { backgroundColor: calendarColor }]} />
               <Text style={styles.cardCategoryText}>{categoryLabel}</Text>
@@ -448,6 +475,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  recurringTag: {
+    backgroundColor: "#264653",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  recurringTagText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   cardCategoryBadge: {
     flexDirection: "row",

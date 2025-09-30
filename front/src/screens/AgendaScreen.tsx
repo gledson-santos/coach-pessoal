@@ -378,6 +378,8 @@ export default function AgendaScreen() {
                   DURACAO_MINIMA * MINUTE_HEIGHT
                 );
                 const isEventoCurto = altura <= DURACAO_MINIMA * MINUTE_HEIGHT + 2;
+                const isShortDuration = (ev.tempoExecucao ?? DURACAO_MINIMA) <= DURACAO_MINIMA;
+                const titleNumberOfLines = isShortDuration || isEventoCurto ? 2 : undefined;
 
                 const estiloDinamico: any = {
                   top: ev.startMin * MINUTE_HEIGHT,
@@ -406,22 +408,28 @@ export default function AgendaScreen() {
                     activeOpacity={0.85}
                   >
                     <Text
-                      style={[styles.eventoTexto, isEventoCurto && styles.eventoTextoCurto]}
-                      numberOfLines={isEventoCurto ? 2 : undefined}
+                      style={[
+                        styles.eventoTexto,
+                        isEventoCurto && styles.eventoTextoCurto,
+                        isShortDuration && styles.eventoTextoShortDuration,
+                      ]}
+                      numberOfLines={titleNumberOfLines}
                     >
                       {ev.titulo}
                     </Text>
-                    <Text style={[styles.eventoHora, isEventoCurto && styles.eventoHoraCurta]}>
-                      {new Date(ev.inicio ?? "").toLocaleTimeString("pt-BR", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {" "}-{" "}
-                      {new Date(ev.fim ?? "").toLocaleTimeString("pt-BR", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
+                    {!isShortDuration && (
+                      <Text style={[styles.eventoHora, isEventoCurto && styles.eventoHoraCurta]}>
+                        {new Date(ev.inicio ?? "").toLocaleTimeString("pt-BR", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        {" "}-{" "}
+                        {new Date(ev.fim ?? "").toLocaleTimeString("pt-BR", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Text>
+                    )}
 
                     {ev.overlaps.map((intervalo, idx) => {
                       const sobreposicaoInicio = intervalo.start - ev.startMin;
@@ -776,6 +784,10 @@ const styles = StyleSheet.create({
   eventoTextoCurto: {
     fontSize: 12,
     lineHeight: 16,
+  },
+  eventoTextoShortDuration: {
+    textAlign: "center",
+    width: "100%",
   },
   eventoHora: { color: "#fff", fontSize: 12, marginTop: 4, lineHeight: 16 },
   eventoHoraCurta: {
