@@ -2,6 +2,7 @@ import { buildApiUrl } from "../../config/api";
 import { CalendarAccount } from "../../types/calendar";
 import { Evento, substituirEventosIcs } from "../../database";
 import { updateCalendarAccountStatus } from "../calendarAccountsStore";
+import { triggerEventSync } from "../eventSync";
 
 const DEFAULT_DIFFICULTY = "Media";
 const DEFAULT_TYPE = "Calendário ICS";
@@ -289,6 +290,12 @@ export const syncIcsAccount = async (account: CalendarAccount) => {
   }
 
   await substituirEventosIcs(account.id, eventos);
+
+  try {
+    await triggerEventSync();
+  } catch (error) {
+    console.warn("[ics] failed to trigger sync after provider import", error);
+  }
 
   await updateCalendarAccountStatus(account.id, {
     status: "idle",
