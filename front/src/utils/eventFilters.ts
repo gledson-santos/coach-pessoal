@@ -17,6 +17,18 @@ const CANCELLED_STATUS_SET = new Set(
 const normalizeStatus = (status?: string | null) =>
   typeof status === "string" ? status.trim().toLowerCase() : "";
 
+const normalizeTitle = (title?: string | null) =>
+  typeof title === "string" ? title.trim().toLowerCase() : "";
+
+const hasCancellationKeywordInTitle = (title?: string | null) => {
+  const normalized = normalizeTitle(title);
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.includes("cancelado");
+};
+
 const isCancelledStatus = (status?: string | null) => {
   const normalized = normalizeStatus(status);
   if (!normalized) {
@@ -55,6 +67,10 @@ const getVisibilityThreshold = (daysBack: number) => {
 
 export const shouldDisplayEvent = (event: Evento, daysBack = 3) => {
   if (isCancelledStatus(event.status)) {
+    return false;
+  }
+
+  if (hasCancellationKeywordInTitle(event.titulo)) {
     return false;
   }
 
