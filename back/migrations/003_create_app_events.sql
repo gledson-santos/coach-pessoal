@@ -20,4 +20,4 @@ CREATE TABLE IF NOT EXISTS app_events (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_app_events_updated_at ON app_events(updated_at);
+CREATE INDEX idx_app_events_updated_at ON app_events (updated_at);
