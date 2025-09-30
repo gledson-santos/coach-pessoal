@@ -5,6 +5,10 @@ import { config } from "./config";
 import { exchangeGoogleCode, refreshGoogleToken } from "./googleService";
 import { exchangeOutlookCode, refreshOutlookToken } from "./outlookService";
 import { calendarAccountRepository } from "./repositories/calendarAccountRepository";
+import {
+  appEventRepository,
+  AppEventSyncPayload,
+} from "./repositories/appEventRepository";
 import { normalizeHexColor } from "./utils/colors";
 import { decodeIdTokenPayload } from "./utils/jwt";
 const app = express();
@@ -94,6 +98,89 @@ type OutlookIdPayload = {
 const resolveEmail = (candidate?: string | null, fallback?: string | null) => {
   const value = candidate ?? fallback ?? "";
   return value.trim().toLowerCase() || null;
+};
+
+const sanitizeSyncString = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeIsoString = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+};
+
+const sanitizeDuration = (value: unknown, fallback = 15): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(1, Math.round(value));
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.round(parsed));
+    }
+  }
+  return Math.max(1, Math.round(fallback));
+};
+
+const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const id = sanitizeSyncString(value.id);
+  if (!id) {
+    return null;
+  }
+
+  const updatedAt = normalizeIsoString(value.updatedAt) ?? new Date().toISOString();
+  const createdAt = normalizeIsoString(value.createdAt) ?? updatedAt;
+
+  const title = sanitizeSyncString(value.title) ?? "Evento";
+  const type = sanitizeSyncString(value.type) ?? "Tarefa";
+  const difficulty = sanitizeSyncString(value.difficulty) ?? "Media";
+  const notes = sanitizeSyncString(value.notes);
+  const date = normalizeIsoString(value.date);
+  const start = normalizeIsoString(value.start);
+  const end = normalizeIsoString(value.end);
+  const color = sanitizeSyncString(value.color);
+  const status = sanitizeSyncString(value.status);
+  const provider = sanitizeSyncString(value.provider);
+  const accountId = sanitizeSyncString(value.accountId);
+  const googleId = sanitizeSyncString(value.googleId);
+  const outlookId = sanitizeSyncString(value.outlookId);
+  const icsUid = sanitizeSyncString(value.icsUid);
+  const duration = sanitizeDuration(value.duration);
+
+  return {
+    id,
+    title,
+    notes,
+    date,
+    type,
+    difficulty,
+    duration,
+    start,
+    end,
+    color,
+    status,
+    provider,
+    accountId,
+    googleId,
+    outlookId,
+    icsUid,
+    updatedAt,
+    createdAt,
+  };
 };
 app.post("/oauth/google/exchange", async (req, res) => {
   const { code, redirectUri, sessionKey, codeVerifier, color, label, email } = req.body as OAuthExchangeRequest;
@@ -416,6 +503,59 @@ app.post("/accounts/:id/refresh", async (req, res) => {
     const data = error?.response?.data ?? { message: error?.message ?? "refresh_failed" };
     console.error("[route] refresh token failed", { status, data });
     res.status(status).json({ error: "refresh_failed", details: data });
+  }
+});
+
+app.post("/sync/events", async (req, res) => {
+  const body = (req.body ?? {}) as { since?: unknown; events?: unknown };
+  let sinceDate: Date | null = null;
+
+  if (body.since !== undefined && body.since !== null) {
+    const sinceIso = normalizeIsoString(body.since);
+    if (!sinceIso) {
+      res.status(400).json({ error: "invalid_since" });
+      return;
+    }
+    sinceDate = new Date(sinceIso);
+  }
+
+  const payload: AppEventSyncPayload[] = Array.isArray(body.events)
+    ? (body.events as unknown[])
+        .map(sanitizeIncomingEventPayload)
+        .filter((item): item is AppEventSyncPayload => item !== null)
+    : [];
+
+  try {
+    if (payload.length > 0) {
+      await appEventRepository.upsertMany(payload);
+    }
+
+    const changes = await appEventRepository.listChangedSince(sinceDate);
+    const incomingMap = new Map<string, number>();
+    for (const item of payload) {
+      const time = Date.parse(item.updatedAt);
+      if (!Number.isNaN(time)) {
+        incomingMap.set(item.id, time);
+      }
+    }
+
+    const filtered = changes.filter((item) => {
+      const incomingTime = incomingMap.get(item.id);
+      if (incomingTime === undefined) {
+        return true;
+      }
+      const changeTime = Date.parse(item.updatedAt);
+      if (Number.isNaN(changeTime)) {
+        return true;
+      }
+      return changeTime > incomingTime;
+    });
+
+    const serverTime = new Date().toISOString();
+    res.json({ events: filtered, serverTime });
+  } catch (error) {
+    console.error("[sync] failed to process events", error);
+    res.status(500).json({ error: "sync_failed" });
   }
 });
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

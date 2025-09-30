@@ -17,6 +17,8 @@ export type Evento = {
   outlookId?: string;
   icsUid?: string;
   updatedAt?: string;
+  createdAt?: string;
+  syncId?: string;
   provider?: CalendarProvider | "local";
   accountId?: string | null;
   status?: "ativo" | "removido" | string;
@@ -54,6 +56,54 @@ const adicionarColuna = async (
   }
 };
 
+const generateSyncId = (): string => {
+  try {
+    const globalObj: any = typeof globalThis !== "undefined" ? globalThis : {};
+    const cryptoObj = globalObj?.crypto;
+    if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+      return cryptoObj.randomUUID();
+    }
+  } catch {
+    // fallback abaixo
+  }
+  const timestamp = Date.now().toString(16);
+  const random = Math.floor(Math.random() * 0xffffffff)
+    .toString(16)
+    .padStart(8, "0");
+  return `evt-${timestamp}-${random}`;
+};
+
+const changeListeners = new Set<() => void>();
+
+const notifyChange = () => {
+  changeListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (error) {
+      console.warn("[database] listener execution failed", error);
+    }
+  });
+};
+
+const assignMissingSyncMetadata = async (database: SQLite.SQLiteDatabase) => {
+  const rows = await database.getAllAsync<{ id: number }>(
+    "SELECT id FROM eventos WHERE syncId IS NULL OR TRIM(syncId) = ''"
+  );
+  for (const row of rows) {
+    await database.runAsync("UPDATE eventos SET syncId = ? WHERE id = ?", [
+      generateSyncId(),
+      row.id,
+    ]);
+  }
+
+  await database.execAsync(
+    "UPDATE eventos SET updatedAt = COALESCE(updatedAt, datetime('now')) WHERE updatedAt IS NULL OR TRIM(updatedAt) = ''"
+  );
+  await database.execAsync(
+    "UPDATE eventos SET createdAt = COALESCE(createdAt, updatedAt, datetime('now')) WHERE createdAt IS NULL OR TRIM(createdAt) = ''"
+  );
+};
+
 const dbPromise = (async () => {
   const database = await SQLite.openDatabaseAsync("coach.db");
   await database.execAsync(`
@@ -72,6 +122,8 @@ const dbPromise = (async () => {
       outlookId TEXT,
       icsUid TEXT,
       updatedAt TEXT,
+      createdAt TEXT,
+      syncId TEXT,
       provider TEXT DEFAULT 'local',
       accountId TEXT,
       status TEXT DEFAULT 'ativo'
@@ -83,6 +135,8 @@ const dbPromise = (async () => {
   await adicionarColuna(database, "outlookId", "TEXT");
   await adicionarColuna(database, "icsUid", "TEXT");
   await adicionarColuna(database, "updatedAt", "TEXT");
+  await adicionarColuna(database, "createdAt", "TEXT");
+  await adicionarColuna(database, "syncId", "TEXT");
   await adicionarColuna(database, "provider", "TEXT DEFAULT 'local'");
   await adicionarColuna(database, "accountId", "TEXT");
   await adicionarColuna(database, "status", "TEXT DEFAULT 'ativo'");
@@ -102,6 +156,11 @@ const dbPromise = (async () => {
   await database.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_eventos_ics ON eventos(icsUid)"
   );
+  await database.execAsync(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_eventos_sync ON eventos(syncId)"
+  );
+
+  await assignMissingSyncMetadata(database);
 
   return database;
 })();
@@ -133,6 +192,8 @@ const mapRowToEvento = (row: any): Evento => ({
   outlookId: row.outlookId ?? undefined,
   icsUid: row.icsUid ?? undefined,
   updatedAt: row.updatedAt ?? undefined,
+  createdAt: row.createdAt ?? undefined,
+  syncId: row.syncId ?? undefined,
   provider: (row.provider as CalendarProvider | "local") ?? "local",
   accountId: row.accountId ?? null,
   status: row.status ?? undefined,
@@ -163,6 +224,8 @@ export async function salvarEvento(ev: Evento) {
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
   const fimCalculado = evento.fim ?? calcularFim(inicioBase, tempo);
   const updatedAt = evento.updatedAt ?? new Date().toISOString();
+  const createdAt = evento.createdAt ?? updatedAt;
+  const syncId = evento.syncId && evento.syncId.trim() ? evento.syncId : generateSyncId();
 
   const resultado = await db.runAsync(
     `INSERT INTO eventos (
@@ -179,10 +242,12 @@ export async function salvarEvento(ev: Evento) {
       outlookId,
       icsUid,
       updatedAt,
+      createdAt,
+      syncId,
       provider,
       accountId,
       status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       evento.titulo,
       evento.observacao ?? "",
@@ -197,11 +262,15 @@ export async function salvarEvento(ev: Evento) {
       evento.outlookId ?? null,
       evento.icsUid ?? null,
       updatedAt,
+      createdAt,
+      syncId,
       evento.provider,
       evento.accountId ?? null,
       evento.status ?? "ativo",
     ]
   );
+
+  notifyChange();
 
   return resultado.lastInsertRowId ?? null;
 }
@@ -219,7 +288,8 @@ export async function atualizarEvento(ev: Evento) {
   await db.runAsync(
     `UPDATE eventos
      SET titulo = ?, observacao = ?, data = ?, tipo = ?, dificuldade = ?, tempoExecucao = ?, inicio = ?, fim = ?,
-        cor = ?, googleId = ?, outlookId = ?, icsUid = ?, updatedAt = ?, provider = ?, accountId = ?, status = ?
+        cor = ?, googleId = ?, outlookId = ?, icsUid = ?, updatedAt = ?, provider = ?, accountId = ?, status = ?,
+        syncId = COALESCE(?, syncId)
      WHERE id = ?`,
     [
       evento.titulo,
@@ -238,9 +308,12 @@ export async function atualizarEvento(ev: Evento) {
       evento.provider,
       evento.accountId ?? null,
       evento.status ?? "ativo",
+      evento.syncId ?? null,
       evento.id,
     ]
   );
+
+  notifyChange();
 }
 
 export async function deletarEvento(id: number) {
@@ -258,6 +331,7 @@ export async function deletarEvento(id: number) {
     updatedAt,
     id,
   ]);
+  notifyChange();
   const googleId = registro?.googleId?.trim() ? registro.googleId : null;
   const outlookId = registro?.outlookId?.trim() ? registro.outlookId : null;
   const accountId = registro?.accountId ?? null;
@@ -358,6 +432,7 @@ export async function atualizarGoogleInfo(
   valores.push(id);
   const db = await dbPromise;
   await db.runAsync(`UPDATE eventos SET ${campos.join(", ")} WHERE id = ?`, valores);
+  notifyChange();
 }
 
 export { dbPromise as db };
@@ -379,5 +454,49 @@ export async function removerEventosSincronizados(
     query += " AND accountId = ?";
     params.push(options.accountId);
   }
-  await db.runAsync(query, params);
+  const result = await db.runAsync(query, params);
+  if ((result?.changes ?? 0) > 0) {
+    notifyChange();
+  }
+}
+
+export const subscribeEventoChanges = (listener: () => void) => {
+  changeListeners.add(listener);
+  return () => {
+    changeListeners.delete(listener);
+  };
+};
+
+export async function listarEventosAtualizadosDesde(
+  updatedAt: string | null | undefined
+): Promise<Evento[]> {
+  const db = await dbPromise;
+  if (updatedAt && updatedAt.trim()) {
+    const result = await db.getAllAsync(
+      `SELECT * FROM eventos WHERE updatedAt > ? ORDER BY updatedAt ASC`,
+      [updatedAt]
+    );
+    return result.map(mapRowToEvento);
+  }
+  const result = await db.getAllAsync(
+    `SELECT * FROM eventos ORDER BY updatedAt ASC`
+  );
+  return result.map(mapRowToEvento);
+}
+
+export async function encontrarEventoPorSyncId(
+  syncId: string
+): Promise<Evento | null> {
+  if (!syncId || !syncId.trim()) {
+    return null;
+  }
+  const db = await dbPromise;
+  const row = await db.getFirstAsync(
+    `SELECT * FROM eventos WHERE syncId = ? LIMIT 1`,
+    [syncId]
+  );
+  if (!row) {
+    return null;
+  }
+  return mapRowToEvento(row);
 }

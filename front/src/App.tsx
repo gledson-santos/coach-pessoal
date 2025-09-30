@@ -6,6 +6,7 @@ import TasksScreen from "./screens/TasksScreen";
 import ConfigScreen from "./screens/ConfigScreen";
 import { initializeCalendarAccounts } from "./services/calendarAccountsStore";
 import { initializeCalendarSyncEngine } from "./services/calendarSyncManager";
+import { initializeEventSync } from "./services/eventSync";
 
 type Tela = "chat" | "agenda" | "tarefas" | "config";
 
@@ -47,6 +48,7 @@ export default function App() {
   const [tela, setTela] = useState<Tela>("chat");
 
   useEffect(() => {
+    initializeEventSync();
     (async () => {
       try {
         const storedAccounts = await initializeCalendarAccounts();
