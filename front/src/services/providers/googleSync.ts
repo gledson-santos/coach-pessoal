@@ -133,31 +133,31 @@ const ensureAccessToken = async (account: CalendarAccount) => {
   }
 
   if (!account.refreshToken) {
-    throw new Error("Refresh token do Google nao disponivel.");
-  }
+    console.warn("[google] refresh token ausente, tentando via backend");
+  } else {
+    try {
+      const localTokens = await refreshAccessTokenLocally(account);
+      const expiresAt = Date.now() + localTokens.expiresIn * 1000;
 
-  try {
-    const localTokens = await refreshAccessTokenLocally(account);
-    const expiresAt = Date.now() + localTokens.expiresIn * 1000;
+      await updateCalendarAccountTokens(account.id, {
+        accessToken: localTokens.accessToken,
+        refreshToken: localTokens.refreshToken,
+        accessTokenExpiresAt: expiresAt,
+        scope: localTokens.scope,
+      });
 
-    await updateCalendarAccountTokens(account.id, {
-      accessToken: localTokens.accessToken,
-      refreshToken: localTokens.refreshToken,
-      accessTokenExpiresAt: expiresAt,
-      scope: localTokens.scope,
-    });
+      await persistProviderTokens(account.id, {
+        accessToken: localTokens.accessToken,
+        refreshToken: localTokens.refreshToken,
+        expiresAt,
+        scope: localTokens.scope,
+        rawPayload: localTokens.rawPayload,
+      });
 
-    await persistProviderTokens(account.id, {
-      accessToken: localTokens.accessToken,
-      refreshToken: localTokens.refreshToken,
-      expiresAt,
-      scope: localTokens.scope,
-      rawPayload: localTokens.rawPayload,
-    });
-
-    return localTokens.accessToken;
-  } catch (error) {
-    console.warn("[google] refresh local falhou, tentando via backend", error);
+      return localTokens.accessToken;
+    } catch (error) {
+      console.warn("[google] refresh local falhou, tentando via backend", error);
+    }
   }
 
   const backendTokens = await refreshAccessTokenViaBackend(account);
@@ -171,9 +171,14 @@ const ensureAccessToken = async (account: CalendarAccount) => {
     ? Date.now() + backendTokens.expiresIn * 1000
     : null;
 
+  const resolvedRefreshToken = backendTokens.refreshToken ?? account.refreshToken ?? null;
+  if (!resolvedRefreshToken) {
+    throw new Error("Refresh token do Google nao disponivel.");
+  }
+
   await updateCalendarAccountTokens(account.id, {
     accessToken: backendTokens.accessToken,
-    refreshToken: backendTokens.refreshToken ?? account.refreshToken ?? null,
+    refreshToken: resolvedRefreshToken,
     accessTokenExpiresAt: expiresAtTimestamp,
     scope: backendTokens.scope ?? account.scope ?? null,
   });
@@ -181,7 +186,7 @@ const ensureAccessToken = async (account: CalendarAccount) => {
   if (expiresAtTimestamp) {
     await persistProviderTokens(account.id, {
       accessToken: backendTokens.accessToken,
-      refreshToken: backendTokens.refreshToken ?? account.refreshToken ?? null,
+      refreshToken: resolvedRefreshToken,
       expiresAt: expiresAtTimestamp,
       scope: backendTokens.scope ?? account.scope ?? null,
     });
