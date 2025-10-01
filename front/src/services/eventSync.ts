@@ -20,6 +20,7 @@ let initialized = false;
 let stateLoaded = false;
 let syncing = false;
 let pending = false;
+let hasPendingLocalChanges = false;
 let suppressNotifications = false;
 
 let lastSyncAt: string | null = null;
@@ -128,6 +129,22 @@ const persistState = async () => {
   }
 };
 
+const refreshPendingLocalChanges = async () => {
+  await loadState();
+  try {
+    const locais = await listarEventosAtualizadosDesde(lastSyncAt);
+    const pendingPayload = filterSyncedPayload(
+      locais
+        .map(mapLocalToPayload)
+        .filter((item): item is SyncEventPayload => item !== null)
+    );
+    hasPendingLocalChanges = pendingPayload.length > 0;
+  } catch (error) {
+    console.warn("[eventSync] failed to check pending local changes", error);
+    throw error;
+  }
+};
+
 const scheduleImmediateSync = (delay = IMMEDIATE_SYNC_DELAY) => {
   if (!initialized) {
     return;
@@ -153,7 +170,7 @@ const startInterval = () => {
   }, SYNC_INTERVAL);
 };
 
-const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
+function mapLocalToPayload(evento: Evento): SyncEventPayload | null {
   if (!evento.syncId || !evento.syncId.trim()) {
     return null;
   }
@@ -186,7 +203,7 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
     updatedAt,
     createdAt,
   };
-};
+}
 
 const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
   const updatedAt = sanitizeIso(payload.updatedAt) ?? new Date().toISOString();
@@ -252,7 +269,7 @@ const applyRemoteEvents = async (events: SyncEventPayload[]) => {
   }
 };
 
-const filterSyncedPayload = (events: SyncEventPayload[]) => {
+function filterSyncedPayload(events: SyncEventPayload[]): SyncEventPayload[] {
   return events.filter((item) => {
     const normalized = sanitizeIso(item.updatedAt) ?? item.updatedAt;
     const existing = syncedEventVersions.get(item.id);
@@ -261,7 +278,7 @@ const filterSyncedPayload = (events: SyncEventPayload[]) => {
     }
     return existing !== normalized;
   });
-};
+}
 
 const chunkEvents = (events: SyncEventPayload[]) => {
   if (events.length <= MAX_EVENTS_PER_BATCH) {
@@ -280,9 +297,16 @@ const performSync = async () => {
   const locais = await listarEventosAtualizadosDesde(since);
   const payload = filterSyncedPayload(
     locais
-    .map(mapLocalToPayload)
-    .filter((item): item is SyncEventPayload => item !== null)
+      .map(mapLocalToPayload)
+      .filter((item): item is SyncEventPayload => item !== null)
   );
+
+  if (payload.length === 0) {
+    hasPendingLocalChanges = false;
+    if (since) {
+      return;
+    }
+  }
 
   const chunks = chunkEvents(payload);
   const remoteEventMap = new Map<string, SyncEventPayload>();
@@ -358,9 +382,15 @@ const performSync = async () => {
   const serverTimeIso = latestServerTime ?? new Date().toISOString();
   lastSyncAt = serverTimeIso;
   await persistState();
+  if (!pending) {
+    hasPendingLocalChanges = false;
+  }
 };
 
 export const triggerEventSync = async () => {
+  if (!hasPendingLocalChanges && lastSyncAt) {
+    return;
+  }
   if (syncing) {
     pending = true;
     return;
@@ -387,11 +417,21 @@ export const initializeEventSync = () => {
   }
   initialized = true;
   startInterval();
-  scheduleImmediateSync(INITIAL_SYNC_DELAY);
+  refreshPendingLocalChanges()
+    .then(() => {
+      if (hasPendingLocalChanges || !lastSyncAt) {
+        scheduleImmediateSync(INITIAL_SYNC_DELAY);
+      }
+    })
+    .catch((error) => {
+      console.warn("[eventSync] failed to refresh pending changes", error);
+      scheduleImmediateSync(INITIAL_SYNC_DELAY);
+    });
   unsubscribeChanges = subscribeEventoChanges(() => {
     if (suppressNotifications) {
       return;
     }
+    hasPendingLocalChanges = true;
     scheduleImmediateSync();
   });
 };
