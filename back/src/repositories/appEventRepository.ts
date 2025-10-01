@@ -138,6 +138,7 @@ export const appEventRepository = {
           const updatedAt = parseDate(event.updatedAt) ?? new Date();
           const createdAt = parseDate(event.createdAt) ?? updatedAt;
           const duration = ensureDuration(event.duration);
+          const integrationDate = parseDate(event.integrationDate ?? undefined);
 
           if (!id) {
             continue;
@@ -150,23 +151,27 @@ export const appEventRepository = {
               outlook_id, ics_uid, created_at, updated_at, integration_date
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
-              title = IF(VALUES(updated_at) >= updated_at, VALUES(title), title),
-              notes = IF(VALUES(updated_at) >= updated_at, VALUES(notes), notes),
-              event_date = IF(VALUES(updated_at) >= updated_at, VALUES(event_date), event_date),
-              event_type = IF(VALUES(updated_at) >= updated_at, VALUES(event_type), event_type),
-              difficulty = IF(VALUES(updated_at) >= updated_at, VALUES(difficulty), difficulty),
-              duration_minutes = IF(VALUES(updated_at) >= updated_at, VALUES(duration_minutes), duration_minutes),
-              start_at = IF(VALUES(updated_at) >= updated_at, VALUES(start_at), start_at),
-              end_at = IF(VALUES(updated_at) >= updated_at, VALUES(end_at), end_at),
-              color = IF(VALUES(updated_at) >= updated_at, VALUES(color), color),
-              status = IF(VALUES(updated_at) >= updated_at, VALUES(status), status),
-              provider = IF(VALUES(updated_at) >= updated_at, VALUES(provider), provider),
-              account_id = IF(VALUES(updated_at) >= updated_at, VALUES(account_id), account_id),
-              google_id = IF(VALUES(updated_at) >= updated_at, VALUES(google_id), google_id),
-              outlook_id = IF(VALUES(updated_at) >= updated_at, VALUES(outlook_id), outlook_id),
-              ics_uid = IF(VALUES(updated_at) >= updated_at, VALUES(ics_uid), ics_uid),
-              updated_at = IF(VALUES(updated_at) >= updated_at, VALUES(updated_at), updated_at),
-              integration_date = IF(VALUES(updated_at) >= updated_at, VALUES(integration_date), integration_date)`,
+              title = IF(VALUES(updated_at) > updated_at, VALUES(title), title),
+              notes = IF(VALUES(updated_at) > updated_at, VALUES(notes), notes),
+              event_date = IF(VALUES(updated_at) > updated_at, VALUES(event_date), event_date),
+              event_type = IF(VALUES(updated_at) > updated_at, VALUES(event_type), event_type),
+              difficulty = IF(VALUES(updated_at) > updated_at, VALUES(difficulty), difficulty),
+              duration_minutes = IF(VALUES(updated_at) > updated_at, VALUES(duration_minutes), duration_minutes),
+              start_at = IF(VALUES(updated_at) > updated_at, VALUES(start_at), start_at),
+              end_at = IF(VALUES(updated_at) > updated_at, VALUES(end_at), end_at),
+              color = IF(VALUES(updated_at) > updated_at, VALUES(color), color),
+              status = IF(VALUES(updated_at) > updated_at, VALUES(status), status),
+              provider = IF(VALUES(updated_at) > updated_at, VALUES(provider), provider),
+              account_id = IF(VALUES(updated_at) > updated_at, VALUES(account_id), account_id),
+              google_id = IF(VALUES(updated_at) > updated_at, VALUES(google_id), google_id),
+              outlook_id = IF(VALUES(updated_at) > updated_at, VALUES(outlook_id), outlook_id),
+              ics_uid = IF(VALUES(updated_at) > updated_at, VALUES(ics_uid), ics_uid),
+              updated_at = IF(VALUES(updated_at) > updated_at, VALUES(updated_at), updated_at),
+              integration_date = IF(
+                VALUES(updated_at) > updated_at,
+                VALUES(integration_date),
+                integration_date
+              )`,
             [
               id,
               title,
@@ -186,7 +191,7 @@ export const appEventRepository = {
               icsUid,
               createdAt,
               updatedAt,
-              null,
+              integrationDate,
             ]
           );
         }
