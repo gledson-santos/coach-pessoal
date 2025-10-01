@@ -189,13 +189,23 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
   const outlookId = sanitizeSyncString(value.outlookId);
   const icsUid = sanitizeSyncString(value.icsUid);
   const duration = sanitizeDuration(value.duration);
+  const hasIntegrationDateProp = Object.prototype.hasOwnProperty.call(
+    value,
+    "integrationDate"
+  );
   const integrationDateProvidedOverride =
     typeof (value as any).integrationDateProvided === "boolean"
       ? ((value as any).integrationDateProvided as boolean)
       : null;
-  const integrationDateProvided =
-    integrationDateProvidedOverride ??
-    Object.prototype.hasOwnProperty.call(value, "integrationDate");
+  let integrationDateProvided: boolean;
+  if (integrationDateProvidedOverride !== null) {
+    integrationDateProvided = integrationDateProvidedOverride;
+  } else if (!hasIntegrationDateProp) {
+    integrationDateProvided = false;
+  } else {
+    const rawIntegrationDate = (value as any).integrationDate;
+    integrationDateProvided = rawIntegrationDate !== null && rawIntegrationDate !== undefined;
+  }
   const integrationDate = normalizeIsoString(value.integrationDate);
 
   return {

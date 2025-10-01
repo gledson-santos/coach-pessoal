@@ -99,10 +99,25 @@ const loadState = async () => {
       const parsed = JSON.parse(raw) as {
         lastSyncAt?: string | null;
         syncedEvents?: Record<string, string> | null;
+        lastRemoteSyncAt?: number | string | null;
       };
       if (typeof parsed?.lastSyncAt === "string" && parsed.lastSyncAt.trim()) {
         const iso = sanitizeIso(parsed.lastSyncAt);
         lastSyncAt = iso ?? lastSyncAt;
+      }
+      if (
+        parsed?.lastRemoteSyncAt !== undefined &&
+        parsed.lastRemoteSyncAt !== null
+      ) {
+        const candidate = parsed.lastRemoteSyncAt;
+        if (typeof candidate === "number" && Number.isFinite(candidate)) {
+          lastRemoteSyncAt = candidate;
+        } else if (typeof candidate === "string" && candidate.trim()) {
+          const timestamp = Number(candidate);
+          if (Number.isFinite(timestamp)) {
+            lastRemoteSyncAt = timestamp;
+          }
+        }
       }
       if (parsed?.syncedEvents && typeof parsed.syncedEvents === "object") {
         Object.entries(parsed.syncedEvents).forEach(([id, updatedAt]) => {
@@ -127,7 +142,7 @@ const persistState = async () => {
     const syncedEvents = Object.fromEntries(syncedEventVersions.entries());
     await AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ lastSyncAt, syncedEvents })
+      JSON.stringify({ lastSyncAt, syncedEvents, lastRemoteSyncAt })
     );
   } catch (error) {
     console.warn("[eventSync] failed to persist state", error);
@@ -397,10 +412,10 @@ const performSync = async (forceRemotePull: boolean) => {
 
   const serverTimeIso = latestServerTime ?? new Date().toISOString();
   lastSyncAt = serverTimeIso;
-  await persistState();
   if (performedNetworkRequest) {
     lastRemoteSyncAt = Date.now();
   }
+  await persistState();
   if (!pending) {
     hasPendingLocalChanges = false;
   }
@@ -439,11 +454,14 @@ export const initializeEventSync = () => {
     return;
   }
   initialized = true;
-  lastRemoteSyncAt = null;
   startInterval();
   refreshPendingLocalChanges()
     .then(() => {
-      if (hasPendingLocalChanges || !lastSyncAt) {
+      const now = Date.now();
+      const recentlySynced =
+        lastRemoteSyncAt !== null && now - lastRemoteSyncAt < MIN_REMOTE_SYNC_INTERVAL;
+      const shouldSchedule = hasPendingLocalChanges || !lastSyncAt || !recentlySynced;
+      if (shouldSchedule) {
         const force = !lastSyncAt;
         scheduleImmediateSync(INITIAL_SYNC_DELAY, { force });
       }
@@ -466,7 +484,6 @@ export const disposeEventSync = () => {
     return;
   }
   initialized = false;
-  lastRemoteSyncAt = null;
   if (intervalTimer) {
     clearInterval(intervalTimer);
     intervalTimer = null;
