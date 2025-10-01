@@ -166,7 +166,7 @@ const startInterval = () => {
     clearInterval(intervalTimer);
   }
   intervalTimer = setInterval(() => {
-    triggerEventSync({ force: true }).catch((error) => {
+    triggerEventSync().catch((error) => {
       console.warn("[eventSync] scheduled sync failed", error);
     });
   }, SYNC_INTERVAL);

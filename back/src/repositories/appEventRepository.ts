@@ -21,6 +21,7 @@ export type AppEventSyncPayload = {
   updatedAt: string;
   createdAt: string | null;
   integrationDate: string | null;
+  integrationDateProvided?: boolean;
 };
 
 type DbAppEvent = RowDataPacket & {
@@ -138,7 +139,10 @@ export const appEventRepository = {
           const updatedAt = parseDate(event.updatedAt) ?? new Date();
           const createdAt = parseDate(event.createdAt) ?? updatedAt;
           const duration = ensureDuration(event.duration);
-          const integrationDate = parseDate(event.integrationDate ?? undefined);
+          const integrationDateProvided = event.integrationDateProvided === true;
+          const integrationDate = integrationDateProvided
+            ? parseDate(event.integrationDate ?? undefined)
+            : null;
 
           if (!id) {
             continue;
@@ -167,15 +171,14 @@ export const appEventRepository = {
               outlook_id = IF(VALUES(updated_at) > updated_at, VALUES(outlook_id), outlook_id),
               ics_uid = IF(VALUES(updated_at) > updated_at, VALUES(ics_uid), ics_uid),
               updated_at = IF(VALUES(updated_at) > updated_at, VALUES(updated_at), updated_at),
-              integration_date = IF(
-                VALUES(updated_at) > updated_at,
-                IF(
-                  VALUES(integration_date) IS NULL,
-                  integration_date,
-                  VALUES(integration_date)
-                ),
-                integration_date
-              )`,
+              integration_date = CASE
+                WHEN ? = 1 THEN VALUES(integration_date)
+                WHEN VALUES(updated_at) > updated_at THEN CASE
+                  WHEN VALUES(integration_date) IS NULL THEN integration_date
+                  ELSE VALUES(integration_date)
+                END
+                ELSE integration_date
+              END`,
             [
               id,
               title,
@@ -196,6 +199,7 @@ export const appEventRepository = {
               createdAt,
               updatedAt,
               integrationDate,
+              integrationDateProvided ? 1 : 0,
             ]
           );
         }
@@ -238,8 +242,10 @@ export const appEventRepository = {
 
     return withConnection(async (conn) => {
       const placeholders = ids.map(() => "?").join(", ");
-      const query = `UPDATE app_events SET integration_date = ? WHERE id IN (${placeholders})`;
-      const params: any[] = [integrationDate];
+      const updatedAt = integrationDate ?? new Date();
+      const query = `UPDATE app_events SET integration_date = ?, updated_at = GREATEST(updated_at, ?)
+        WHERE id IN (${placeholders})`;
+      const params: any[] = [integrationDate, updatedAt];
       params.push(...ids);
       const [result] = await conn.query<ResultSetHeader>(query, params);
       return result.affectedRows ?? 0;

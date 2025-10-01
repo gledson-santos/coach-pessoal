@@ -189,6 +189,10 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
   const outlookId = sanitizeSyncString(value.outlookId);
   const icsUid = sanitizeSyncString(value.icsUid);
   const duration = sanitizeDuration(value.duration);
+  const integrationDateProvided = Object.prototype.hasOwnProperty.call(
+    value,
+    "integrationDate"
+  );
   const integrationDate = normalizeIsoString(value.integrationDate);
 
   return {
@@ -211,6 +215,7 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
     updatedAt,
     createdAt,
     integrationDate: integrationDate ?? null,
+    integrationDateProvided,
   };
 };
 app.post("/oauth/google/exchange", async (req, res) => {
