@@ -167,11 +167,7 @@ export const appEventRepository = {
               outlook_id = IF(VALUES(updated_at) > updated_at, VALUES(outlook_id), outlook_id),
               ics_uid = IF(VALUES(updated_at) > updated_at, VALUES(ics_uid), ics_uid),
               updated_at = IF(VALUES(updated_at) > updated_at, VALUES(updated_at), updated_at),
-              integration_date = IF(
-                VALUES(updated_at) > updated_at,
-                VALUES(integration_date),
-                integration_date
-              )`,
+              integration_date = IFNULL(VALUES(integration_date), integration_date)`,
             [
               id,
               title,
