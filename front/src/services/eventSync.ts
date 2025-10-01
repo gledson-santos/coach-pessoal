@@ -81,6 +81,7 @@ type SyncEventPayload = {
   updatedAt: string;
   createdAt: string | null;
   integrationDate: string | null;
+  integrationDateProvided?: boolean;
 };
 
 type SyncResponse = {
@@ -184,7 +185,8 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
       : 15;
   const provider = sanitizeOptionalString(evento.provider as string) ?? "local";
   const accountId = sanitizeOptionalString(evento.accountId ?? undefined);
-  const integrationDate = sanitizeIso(evento.integrationDate) ?? null;
+  const hasIntegrationDate = evento.integrationDate !== undefined;
+  const integrationDate = hasIntegrationDate ? sanitizeIso(evento.integrationDate) ?? null : null;
 
   return {
     id: evento.syncId,
@@ -206,6 +208,7 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
     updatedAt,
     createdAt,
     integrationDate,
+    integrationDateProvided: hasIntegrationDate,
   };
 };
 

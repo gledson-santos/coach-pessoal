@@ -242,8 +242,8 @@ export const appEventRepository = {
 
     return withConnection(async (conn) => {
       const placeholders = ids.map(() => "?").join(", ");
-      const updatedAt = integrationDate ?? new Date();
-      const query = `UPDATE app_events SET integration_date = ?, updated_at = GREATEST(updated_at, ?)
+      const updatedAt = new Date();
+      const query = `UPDATE app_events SET integration_date = ?, updated_at = ?
         WHERE id IN (${placeholders})`;
       const params: any[] = [integrationDate, updatedAt];
       params.push(...ids);
