@@ -20,6 +20,7 @@ let initialized = false;
 let stateLoaded = false;
 let syncing = false;
 let pending = false;
+let hasPendingLocalChanges = false;
 let suppressNotifications = false;
 
 let lastSyncAt: string | null = null;
@@ -125,6 +126,17 @@ const persistState = async () => {
     );
   } catch (error) {
     console.warn("[eventSync] failed to persist state", error);
+  }
+};
+
+const refreshPendingLocalChanges = async () => {
+  await loadState();
+  try {
+    const locais = await listarEventosAtualizadosDesde(lastSyncAt);
+    hasPendingLocalChanges = locais.length > 0;
+  } catch (error) {
+    console.warn("[eventSync] failed to check pending local changes", error);
+    throw error;
   }
 };
 
@@ -358,6 +370,9 @@ const performSync = async () => {
   const serverTimeIso = latestServerTime ?? new Date().toISOString();
   lastSyncAt = serverTimeIso;
   await persistState();
+  if (!pending) {
+    hasPendingLocalChanges = false;
+  }
 };
 
 export const triggerEventSync = async () => {
@@ -387,11 +402,21 @@ export const initializeEventSync = () => {
   }
   initialized = true;
   startInterval();
-  scheduleImmediateSync(INITIAL_SYNC_DELAY);
+  refreshPendingLocalChanges()
+    .then(() => {
+      if (hasPendingLocalChanges || !lastSyncAt) {
+        scheduleImmediateSync(INITIAL_SYNC_DELAY);
+      }
+    })
+    .catch((error) => {
+      console.warn("[eventSync] failed to refresh pending changes", error);
+      scheduleImmediateSync(INITIAL_SYNC_DELAY);
+    });
   unsubscribeChanges = subscribeEventoChanges(() => {
     if (suppressNotifications) {
       return;
     }
+    hasPendingLocalChanges = true;
     scheduleImmediateSync();
   });
 };
