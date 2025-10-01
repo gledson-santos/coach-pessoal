@@ -22,9 +22,25 @@ export type Evento = {
   provider?: CalendarProvider | "local";
   accountId?: string | null;
   status?: "ativo" | "removido" | string;
+  integrationDate?: string | null;
 };
 
 const DEFAULT_TEMPO_EXECUCAO = 15;
+
+const sanitizeIsoString = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+};
 
 const sanitizeTempoExecucao = (
   value: unknown,
@@ -140,6 +156,7 @@ const dbPromise = (async () => {
   await adicionarColuna(database, "provider", "TEXT DEFAULT 'local'");
   await adicionarColuna(database, "accountId", "TEXT");
   await adicionarColuna(database, "status", "TEXT DEFAULT 'ativo'");
+  await adicionarColuna(database, "integrationDate", "TEXT");
 
   await database.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_eventos_provider ON eventos(provider)"
@@ -220,6 +237,7 @@ const mapRowToEvento = (row: any): Evento => ({
   provider: (row.provider as CalendarProvider | "local") ?? "local",
   accountId: row.accountId ?? null,
   status: row.status ?? undefined,
+  integrationDate: row.integrationDate ?? undefined,
 });
 
 const normalizarEvento = (ev: Evento): Evento => {
@@ -230,6 +248,7 @@ const normalizarEvento = (ev: Evento): Evento => {
   const status = ev.status ?? "ativo";
   const cor = normalizeCalendarColor(ev.cor);
   const tempoExecucao = sanitizeTempoExecucao(ev.tempoExecucao);
+  const integrationDate = sanitizeIsoString(ev.integrationDate ?? null);
   return {
     ...ev,
     provider,
@@ -237,6 +256,7 @@ const normalizarEvento = (ev: Evento): Evento => {
     status,
     cor,
     tempoExecucao,
+    integrationDate,
   };
 };
 
@@ -256,6 +276,7 @@ const salvarEventoInternal = async (
   const updatedAt = evento.updatedAt ?? new Date().toISOString();
   const createdAt = evento.createdAt ?? updatedAt;
   const syncId = evento.syncId && evento.syncId.trim() ? evento.syncId : generateSyncId();
+  const integrationDate = evento.integrationDate ?? null;
 
   const resultado = await db.runAsync(
     `INSERT INTO eventos (
@@ -276,8 +297,9 @@ const salvarEventoInternal = async (
       syncId,
       provider,
       accountId,
-      status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      status,
+      integrationDate
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       evento.titulo,
       evento.observacao ?? "",
@@ -297,6 +319,7 @@ const salvarEventoInternal = async (
       evento.provider,
       evento.accountId ?? null,
       evento.status ?? "ativo",
+      integrationDate,
     ]
   );
 
@@ -321,12 +344,13 @@ const atualizarEventoInternal = async (
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
   const fimCalculado = evento.fim ?? calcularFim(inicioBase, tempo);
   const updatedAt = evento.updatedAt ?? new Date().toISOString();
+  const integrationDate = evento.integrationDate ?? null;
 
   await db.runAsync(
     `UPDATE eventos
      SET titulo = ?, observacao = ?, data = ?, tipo = ?, dificuldade = ?, tempoExecucao = ?, inicio = ?, fim = ?,
         cor = ?, googleId = ?, outlookId = ?, icsUid = ?, updatedAt = ?, provider = ?, accountId = ?, status = ?,
-        syncId = COALESCE(?, syncId)
+        integrationDate = ?, syncId = COALESCE(?, syncId)
      WHERE id = ?`,
     [
       evento.titulo,
@@ -345,6 +369,7 @@ const atualizarEventoInternal = async (
       evento.provider,
       evento.accountId ?? null,
       evento.status ?? "ativo",
+      integrationDate,
       evento.syncId ?? null,
       evento.id,
     ]

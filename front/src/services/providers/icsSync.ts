@@ -673,7 +673,7 @@ export const syncIcsAccount = async (account: CalendarAccount) => {
   await substituirEventosIcs(account.id, eventos);
 
   try {
-    await triggerEventSync();
+    await triggerEventSync({ force: true });
   } catch (error) {
     console.warn("[ics] failed to trigger sync after provider import", error);
   }

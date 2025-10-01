@@ -672,7 +672,7 @@ export default function AgendaScreen() {
           }
           await carregarEventos();
           try {
-            await triggerEventSync();
+            await triggerEventSync({ force: true });
           } catch (error) {
             console.warn("[agenda] failed to trigger sync after save", error);
           }

@@ -15,15 +15,18 @@ const MAX_SYNC_CACHE_ENTRIES = 1000;
 const SYNC_INTERVAL = 5 * 60 * 1000;
 const IMMEDIATE_SYNC_DELAY = 2_000;
 const INITIAL_SYNC_DELAY = 1_000;
+const MIN_REMOTE_SYNC_INTERVAL = 30 * 1000;
 
 let initialized = false;
 let stateLoaded = false;
 let syncing = false;
 let pending = false;
+let pendingForce = false;
 let hasPendingLocalChanges = false;
 let suppressNotifications = false;
 
 let lastSyncAt: string | null = null;
+let lastRemoteSyncAt: number | null = null;
 const syncedEventVersions = new Map<string, string>();
 let intervalTimer: ReturnType<typeof setInterval> | null = null;
 let immediateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -77,6 +80,7 @@ type SyncEventPayload = {
   icsUid: string | null;
   updatedAt: string;
   createdAt: string | null;
+  integrationDate: string | null;
 };
 
 type SyncResponse = {
@@ -140,7 +144,10 @@ const refreshPendingLocalChanges = async () => {
   }
 };
 
-const scheduleImmediateSync = (delay = IMMEDIATE_SYNC_DELAY) => {
+const scheduleImmediateSync = (
+  delay = IMMEDIATE_SYNC_DELAY,
+  options: { force?: boolean } = {}
+) => {
   if (!initialized) {
     return;
   }
@@ -148,7 +155,7 @@ const scheduleImmediateSync = (delay = IMMEDIATE_SYNC_DELAY) => {
     clearTimeout(immediateTimer);
   }
   immediateTimer = setTimeout(() => {
-    triggerEventSync().catch((error) => {
+    triggerEventSync(options).catch((error) => {
       console.warn("[eventSync] immediate sync failed", error);
     });
   }, delay);
@@ -159,7 +166,7 @@ const startInterval = () => {
     clearInterval(intervalTimer);
   }
   intervalTimer = setInterval(() => {
-    triggerEventSync().catch((error) => {
+    triggerEventSync({ force: true }).catch((error) => {
       console.warn("[eventSync] scheduled sync failed", error);
     });
   }, SYNC_INTERVAL);
@@ -177,6 +184,7 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
       : 15;
   const provider = sanitizeOptionalString(evento.provider as string) ?? "local";
   const accountId = sanitizeOptionalString(evento.accountId ?? undefined);
+  const integrationDate = sanitizeIso(evento.integrationDate) ?? null;
 
   return {
     id: evento.syncId,
@@ -197,6 +205,7 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
     icsUid: sanitizeOptionalString(evento.icsUid),
     updatedAt,
     createdAt,
+    integrationDate,
   };
 };
 
@@ -216,6 +225,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
   const provider = sanitizeOptionalString(payload.provider) ?? "local";
   const status = sanitizeOptionalString(payload.status);
   const accountId = sanitizeOptionalString(payload.accountId);
+  const integrationDate = sanitizeIso(payload.integrationDate) ?? null;
   return {
     titulo: title,
     observacao: payload.notes ?? undefined,
@@ -235,6 +245,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
     updatedAt,
     createdAt,
     syncId: payload.id,
+    integrationDate: integrationDate ?? undefined,
   };
 };
 
@@ -286,7 +297,7 @@ const chunkEvents = (events: SyncEventPayload[]) => {
   return chunks;
 };
 
-const performSync = async () => {
+const performSync = async (forceRemotePull: boolean) => {
   await loadState();
   const since = lastSyncAt;
   const locais = await listarEventosAtualizadosDesde(since);
@@ -296,13 +307,25 @@ const performSync = async () => {
     .filter((item): item is SyncEventPayload => item !== null)
   );
 
-  const chunks = chunkEvents(payload);
+  const now = Date.now();
+  const shouldFetchRemote =
+    forceRemotePull ||
+    payload.length > 0 ||
+    !since ||
+    lastRemoteSyncAt === null ||
+    now - lastRemoteSyncAt >= MIN_REMOTE_SYNC_INTERVAL;
+
+  if (!shouldFetchRemote) {
+    if (!pending) {
+      hasPendingLocalChanges = false;
+    }
+    return;
+  }
+
+  const chunks = payload.length > 0 ? chunkEvents(payload) : [[]];
   const remoteEventMap = new Map<string, SyncEventPayload>();
   let latestServerTime: string | null = null;
-
-  if (chunks.length === 0) {
-    chunks.push([]);
-  }
+  let performedNetworkRequest = false;
 
   for (const chunk of chunks) {
     const body = JSON.stringify({
@@ -324,6 +347,8 @@ const performSync = async () => {
       const message = (data as any)?.error || response.statusText || "Sync failed";
       throw new Error(message);
     }
+
+    performedNetworkRequest = true;
 
     const remoteEvents = Array.isArray(data.events) ? data.events : [];
     for (const event of remoteEvents) {
@@ -370,28 +395,38 @@ const performSync = async () => {
   const serverTimeIso = latestServerTime ?? new Date().toISOString();
   lastSyncAt = serverTimeIso;
   await persistState();
+  if (performedNetworkRequest) {
+    lastRemoteSyncAt = Date.now();
+  }
   if (!pending) {
     hasPendingLocalChanges = false;
   }
 };
 
-export const triggerEventSync = async () => {
+export const triggerEventSync = async (options: { force?: boolean } = {}) => {
+  const { force = false } = options;
   if (syncing) {
     pending = true;
+    pendingForce = pendingForce || force;
     return;
   }
   syncing = true;
   pending = false;
+  pendingForce = force;
   try {
-    await performSync();
+    await performSync(force);
   } catch (error) {
     console.warn("[eventSync] sync failed", error);
     throw error;
   } finally {
     syncing = false;
     if (pending) {
+      const forceNext = pendingForce;
       pending = false;
-      scheduleImmediateSync(IMMEDIATE_SYNC_DELAY);
+      pendingForce = false;
+      scheduleImmediateSync(IMMEDIATE_SYNC_DELAY, { force: forceNext });
+    } else {
+      pendingForce = false;
     }
   }
 };
@@ -401,16 +436,18 @@ export const initializeEventSync = () => {
     return;
   }
   initialized = true;
+  lastRemoteSyncAt = null;
   startInterval();
   refreshPendingLocalChanges()
     .then(() => {
       if (hasPendingLocalChanges || !lastSyncAt) {
-        scheduleImmediateSync(INITIAL_SYNC_DELAY);
+        const force = !lastSyncAt;
+        scheduleImmediateSync(INITIAL_SYNC_DELAY, { force });
       }
     })
     .catch((error) => {
       console.warn("[eventSync] failed to refresh pending changes", error);
-      scheduleImmediateSync(INITIAL_SYNC_DELAY);
+      scheduleImmediateSync(INITIAL_SYNC_DELAY, { force: true });
     });
   unsubscribeChanges = subscribeEventoChanges(() => {
     if (suppressNotifications) {
@@ -426,6 +463,7 @@ export const disposeEventSync = () => {
     return;
   }
   initialized = false;
+  lastRemoteSyncAt = null;
   if (intervalTimer) {
     clearInterval(intervalTimer);
     intervalTimer = null;
