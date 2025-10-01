@@ -169,7 +169,11 @@ export const appEventRepository = {
               updated_at = IF(VALUES(updated_at) > updated_at, VALUES(updated_at), updated_at),
               integration_date = IF(
                 VALUES(updated_at) > updated_at,
-                VALUES(integration_date),
+                IF(
+                  VALUES(integration_date) IS NULL,
+                  integration_date,
+                  VALUES(integration_date)
+                ),
                 integration_date
               )`,
             [
