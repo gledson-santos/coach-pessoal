@@ -10,6 +10,8 @@ import {
 import { buildApiUrl } from "../config/api";
 
 const STORAGE_KEY = "@coach/eventSync";
+const MAX_EVENTS_PER_BATCH = 50;
+const MAX_SYNC_CACHE_ENTRIES = 1000;
 const SYNC_INTERVAL = 5 * 60 * 1000;
 const IMMEDIATE_SYNC_DELAY = 2_000;
 const INITIAL_SYNC_DELAY = 1_000;
@@ -21,9 +23,20 @@ let pending = false;
 let suppressNotifications = false;
 
 let lastSyncAt: string | null = null;
+const syncedEventVersions = new Map<string, string>();
 let intervalTimer: ReturnType<typeof setInterval> | null = null;
 let immediateTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribeChanges: (() => void) | null = null;
+
+const enforceSyncedCacheLimit = () => {
+  while (syncedEventVersions.size > MAX_SYNC_CACHE_ENTRIES) {
+    const iterator = syncedEventVersions.keys().next();
+    if (iterator.done || !iterator.value) {
+      break;
+    }
+    syncedEventVersions.delete(iterator.value);
+  }
+};
 
 const sanitizeIso = (value?: string | null): string | null => {
   if (!value || typeof value !== "string") {
@@ -77,10 +90,24 @@ const loadState = async () => {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as { lastSyncAt?: string | null };
+      const parsed = JSON.parse(raw) as {
+        lastSyncAt?: string | null;
+        syncedEvents?: Record<string, string> | null;
+      };
       if (typeof parsed?.lastSyncAt === "string" && parsed.lastSyncAt.trim()) {
         const iso = sanitizeIso(parsed.lastSyncAt);
         lastSyncAt = iso ?? lastSyncAt;
+      }
+      if (parsed?.syncedEvents && typeof parsed.syncedEvents === "object") {
+        Object.entries(parsed.syncedEvents).forEach(([id, updatedAt]) => {
+          if (typeof id === "string" && typeof updatedAt === "string") {
+            const iso = sanitizeIso(updatedAt);
+            if (iso) {
+              syncedEventVersions.set(id, iso);
+              enforceSyncedCacheLimit();
+            }
+          }
+        });
       }
     }
   } catch (error) {
@@ -91,9 +118,10 @@ const loadState = async () => {
 
 const persistState = async () => {
   try {
+    const syncedEvents = Object.fromEntries(syncedEventVersions.entries());
     await AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ lastSyncAt })
+      JSON.stringify({ lastSyncAt, syncedEvents })
     );
   } catch (error) {
     console.warn("[eventSync] failed to persist state", error);
@@ -224,38 +252,110 @@ const applyRemoteEvents = async (events: SyncEventPayload[]) => {
   }
 };
 
+const filterSyncedPayload = (events: SyncEventPayload[]) => {
+  return events.filter((item) => {
+    const normalized = sanitizeIso(item.updatedAt) ?? item.updatedAt;
+    const existing = syncedEventVersions.get(item.id);
+    if (!existing) {
+      return true;
+    }
+    return existing !== normalized;
+  });
+};
+
+const chunkEvents = (events: SyncEventPayload[]) => {
+  if (events.length <= MAX_EVENTS_PER_BATCH) {
+    return [events];
+  }
+  const chunks: SyncEventPayload[][] = [];
+  for (let i = 0; i < events.length; i += MAX_EVENTS_PER_BATCH) {
+    chunks.push(events.slice(i, i + MAX_EVENTS_PER_BATCH));
+  }
+  return chunks;
+};
+
 const performSync = async () => {
   await loadState();
   const since = lastSyncAt;
   const locais = await listarEventosAtualizadosDesde(since);
-  const payload = locais
+  const payload = filterSyncedPayload(
+    locais
     .map(mapLocalToPayload)
-    .filter((item): item is SyncEventPayload => item !== null);
+    .filter((item): item is SyncEventPayload => item !== null)
+  );
 
-  const body = JSON.stringify({
-    since,
-    events: payload,
-  });
+  const chunks = chunkEvents(payload);
+  const remoteEventMap = new Map<string, SyncEventPayload>();
+  let latestServerTime: string | null = null;
 
-  const response = await fetch(buildApiUrl("/sync/events"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body,
-  });
-
-  const data: SyncResponse = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const message = (data as any)?.error || response.statusText || "Sync failed";
-    throw new Error(message);
+  if (chunks.length === 0) {
+    chunks.push([]);
   }
 
-  const remoteEvents = Array.isArray(data.events) ? data.events : [];
+  for (const chunk of chunks) {
+    const body = JSON.stringify({
+      since,
+      events: chunk,
+    });
+
+    const response = await fetch(buildApiUrl("/sync/events"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body,
+    });
+
+    const data: SyncResponse = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const message = (data as any)?.error || response.statusText || "Sync failed";
+      throw new Error(message);
+    }
+
+    const remoteEvents = Array.isArray(data.events) ? data.events : [];
+    for (const event of remoteEvents) {
+      if (!event?.id) {
+        continue;
+      }
+      const existing = remoteEventMap.get(event.id);
+      if (!existing) {
+        remoteEventMap.set(event.id, event);
+        continue;
+      }
+      const existingTime = sanitizeIso(existing.updatedAt);
+      const incomingTime = sanitizeIso(event.updatedAt);
+      if (!existingTime || !incomingTime) {
+        remoteEventMap.set(event.id, event);
+        continue;
+      }
+      if (new Date(incomingTime).getTime() > new Date(existingTime).getTime()) {
+        remoteEventMap.set(event.id, event);
+      }
+    }
+
+    const serverTimeIso = sanitizeIso(data.serverTime);
+    if (serverTimeIso) {
+      latestServerTime = serverTimeIso;
+    }
+
+    if (chunk.length > 0) {
+      chunk.forEach((item) => {
+        if (item?.id && item?.updatedAt) {
+          const normalized = sanitizeIso(item.updatedAt) ?? item.updatedAt;
+          if (normalized) {
+            syncedEventVersions.set(item.id, normalized);
+            enforceSyncedCacheLimit();
+          }
+        }
+      });
+    }
+  }
+
+  const remoteEvents = Array.from(remoteEventMap.values());
   await applyRemoteEvents(remoteEvents);
 
-  const serverTimeIso = sanitizeIso(data.serverTime) ?? new Date().toISOString();
+  const serverTimeIso = latestServerTime ?? new Date().toISOString();
   lastSyncAt = serverTimeIso;
   await persistState();
 };
