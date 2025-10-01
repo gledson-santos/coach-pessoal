@@ -388,9 +388,6 @@ const performSync = async () => {
 };
 
 export const triggerEventSync = async () => {
-  if (!hasPendingLocalChanges && lastSyncAt) {
-    return;
-  }
   if (syncing) {
     pending = true;
     return;
