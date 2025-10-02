@@ -171,6 +171,7 @@ const scheduleImmediateSync = (
     clearTimeout(immediateTimer);
   }
   immediateTimer = setTimeout(() => {
+    immediateTimer = null;
     triggerEventSync(options).catch((error) => {
       console.warn("[eventSync] immediate sync failed", error);
     });
@@ -423,6 +424,10 @@ const performSync = async (forceRemotePull: boolean) => {
 
 export const triggerEventSync = async (options: { force?: boolean } = {}) => {
   const { force = false } = options;
+  if (force && immediateTimer) {
+    clearTimeout(immediateTimer);
+    immediateTimer = null;
+  }
   if (syncing) {
     pending = true;
     pendingForce = pendingForce || force;

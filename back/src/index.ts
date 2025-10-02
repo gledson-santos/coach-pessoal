@@ -193,6 +193,8 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
     value,
     "integrationDate"
   );
+  const rawIntegrationDate = (value as any).integrationDate;
+  const integrationDate = normalizeIsoString(rawIntegrationDate);
   const integrationDateProvidedOverride =
     typeof (value as any).integrationDateProvided === "boolean"
       ? ((value as any).integrationDateProvided as boolean)
@@ -200,13 +202,13 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
   let integrationDateProvided: boolean;
   if (integrationDateProvidedOverride !== null) {
     integrationDateProvided = integrationDateProvidedOverride;
+  } else if (integrationDate !== null) {
+    integrationDateProvided = true;
   } else if (!hasIntegrationDateProp) {
     integrationDateProvided = false;
   } else {
-    const rawIntegrationDate = (value as any).integrationDate;
-    integrationDateProvided = rawIntegrationDate !== null && rawIntegrationDate !== undefined;
+    integrationDateProvided = rawIntegrationDate === null;
   }
-  const integrationDate = normalizeIsoString(value.integrationDate);
 
   return {
     id,
