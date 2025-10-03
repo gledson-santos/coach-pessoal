@@ -12,7 +12,7 @@ import { buildApiUrl } from "../config/api";
 const STORAGE_KEY = "@coach/eventSync";
 const MAX_EVENTS_PER_BATCH = 50;
 const MAX_SYNC_CACHE_ENTRIES = 1000;
-const SYNC_INTERVAL = 5 * 60 * 1000;
+const SYNC_INTERVAL = 60 * 60 * 1000;
 const IMMEDIATE_SYNC_DELAY = 2_000;
 const INITIAL_SYNC_DELAY = 1_000;
 const MIN_REMOTE_SYNC_INTERVAL = 30 * 1000;
