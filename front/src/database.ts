@@ -248,7 +248,14 @@ const normalizarEvento = (ev: Evento): Evento => {
   const status = ev.status ?? "ativo";
   const cor = normalizeCalendarColor(ev.cor);
   const tempoExecucao = sanitizeTempoExecucao(ev.tempoExecucao);
-  const integrationDate = sanitizeIsoString(ev.integrationDate ?? null);
+  let integrationDate: string | null | undefined;
+  if (ev.integrationDate === undefined) {
+    integrationDate = undefined;
+  } else if (ev.integrationDate === null) {
+    integrationDate = null;
+  } else {
+    integrationDate = sanitizeIsoString(ev.integrationDate) ?? null;
+  }
   return {
     ...ev,
     provider,
@@ -344,7 +351,16 @@ const atualizarEventoInternal = async (
   const inicioBase = evento.inicio ?? evento.data ?? new Date().toISOString();
   const fimCalculado = evento.fim ?? calcularFim(inicioBase, tempo);
   const updatedAt = evento.updatedAt ?? new Date().toISOString();
-  const integrationDate = evento.integrationDate ?? null;
+  let integrationDate: string | null;
+  if (evento.integrationDate === undefined) {
+    const existente = await db.getFirstAsync<{ integrationDate: string | null }>(
+      `SELECT integrationDate FROM eventos WHERE id = ?`,
+      [evento.id]
+    );
+    integrationDate = existente?.integrationDate ?? null;
+  } else {
+    integrationDate = evento.integrationDate ?? null;
+  }
 
   await db.runAsync(
     `UPDATE eventos

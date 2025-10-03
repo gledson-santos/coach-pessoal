@@ -42,6 +42,19 @@ const enforceSyncedCacheLimit = () => {
   }
 };
 
+const registerSyncedVersion = (id: string, updatedAt?: string | null) => {
+  if (!id) {
+    return;
+  }
+  const normalized = sanitizeIso(updatedAt ?? undefined) ?? (typeof updatedAt === "string" ? updatedAt : null);
+  if (!normalized) {
+    syncedEventVersions.delete(id);
+    return;
+  }
+  syncedEventVersions.set(id, normalized);
+  enforceSyncedCacheLimit();
+};
+
 const sanitizeIso = (value?: string | null): string | null => {
   if (!value || typeof value !== "string") {
     return null;
@@ -275,7 +288,11 @@ const applyRemoteEvents = async (events: SyncEventPayload[]) => {
   suppressNotifications = true;
   try {
     for (const event of events) {
-      if (!event.id || !event.updatedAt) {
+      if (!event.id) {
+        continue;
+      }
+      registerSyncedVersion(event.id, event.updatedAt);
+      if (!event.updatedAt) {
         continue;
       }
       const local = await encontrarEventoPorSyncId(event.id);
@@ -397,12 +414,8 @@ const performSync = async (forceRemotePull: boolean) => {
 
     if (chunk.length > 0) {
       chunk.forEach((item) => {
-        if (item?.id && item?.updatedAt) {
-          const normalized = sanitizeIso(item.updatedAt) ?? item.updatedAt;
-          if (normalized) {
-            syncedEventVersions.set(item.id, normalized);
-            enforceSyncedCacheLimit();
-          }
+        if (item?.id) {
+          registerSyncedVersion(item.id, item.updatedAt);
         }
       });
     }
