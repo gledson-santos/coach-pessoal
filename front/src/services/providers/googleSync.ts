@@ -309,7 +309,7 @@ export const syncGoogleAccount = async (account: CalendarAccount) => {
   }
 
   try {
-    await triggerEventSync();
+    await triggerEventSync({ force: true });
   } catch (error) {
     console.warn("[google] failed to trigger sync after provider import", error);
   }

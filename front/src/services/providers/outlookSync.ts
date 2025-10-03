@@ -306,7 +306,7 @@ export const syncOutlookAccount = async (account: CalendarAccount) => {
   }
 
   try {
-    await triggerEventSync();
+    await triggerEventSync({ force: true });
   } catch (error) {
     console.warn("[outlook] failed to trigger sync after provider import", error);
   }

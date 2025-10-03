@@ -12,18 +12,21 @@ import { buildApiUrl } from "../config/api";
 const STORAGE_KEY = "@coach/eventSync";
 const MAX_EVENTS_PER_BATCH = 50;
 const MAX_SYNC_CACHE_ENTRIES = 1000;
-const SYNC_INTERVAL = 5 * 60 * 1000;
+const SYNC_INTERVAL = 60 * 60 * 1000;
 const IMMEDIATE_SYNC_DELAY = 2_000;
 const INITIAL_SYNC_DELAY = 1_000;
+const MIN_REMOTE_SYNC_INTERVAL = 30 * 1000;
 
 let initialized = false;
 let stateLoaded = false;
 let syncing = false;
 let pending = false;
+let pendingForce = false;
 let hasPendingLocalChanges = false;
 let suppressNotifications = false;
 
 let lastSyncAt: string | null = null;
+let lastRemoteSyncAt: number | null = null;
 const syncedEventVersions = new Map<string, string>();
 let intervalTimer: ReturnType<typeof setInterval> | null = null;
 let immediateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -37,6 +40,19 @@ const enforceSyncedCacheLimit = () => {
     }
     syncedEventVersions.delete(iterator.value);
   }
+};
+
+const registerSyncedVersion = (id: string, updatedAt?: string | null) => {
+  if (!id) {
+    return;
+  }
+  const normalized = sanitizeIso(updatedAt ?? undefined) ?? (typeof updatedAt === "string" ? updatedAt : null);
+  if (!normalized) {
+    syncedEventVersions.delete(id);
+    return;
+  }
+  syncedEventVersions.set(id, normalized);
+  enforceSyncedCacheLimit();
 };
 
 const sanitizeIso = (value?: string | null): string | null => {
@@ -77,6 +93,8 @@ type SyncEventPayload = {
   icsUid: string | null;
   updatedAt: string;
   createdAt: string | null;
+  integrationDate: string | null;
+  integrationDateProvided?: boolean;
 };
 
 type SyncResponse = {
@@ -94,10 +112,25 @@ const loadState = async () => {
       const parsed = JSON.parse(raw) as {
         lastSyncAt?: string | null;
         syncedEvents?: Record<string, string> | null;
+        lastRemoteSyncAt?: number | string | null;
       };
       if (typeof parsed?.lastSyncAt === "string" && parsed.lastSyncAt.trim()) {
         const iso = sanitizeIso(parsed.lastSyncAt);
         lastSyncAt = iso ?? lastSyncAt;
+      }
+      if (
+        parsed?.lastRemoteSyncAt !== undefined &&
+        parsed.lastRemoteSyncAt !== null
+      ) {
+        const candidate = parsed.lastRemoteSyncAt;
+        if (typeof candidate === "number" && Number.isFinite(candidate)) {
+          lastRemoteSyncAt = candidate;
+        } else if (typeof candidate === "string" && candidate.trim()) {
+          const timestamp = Number(candidate);
+          if (Number.isFinite(timestamp)) {
+            lastRemoteSyncAt = timestamp;
+          }
+        }
       }
       if (parsed?.syncedEvents && typeof parsed.syncedEvents === "object") {
         Object.entries(parsed.syncedEvents).forEach(([id, updatedAt]) => {
@@ -122,7 +155,7 @@ const persistState = async () => {
     const syncedEvents = Object.fromEntries(syncedEventVersions.entries());
     await AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ lastSyncAt, syncedEvents })
+      JSON.stringify({ lastSyncAt, syncedEvents, lastRemoteSyncAt })
     );
   } catch (error) {
     console.warn("[eventSync] failed to persist state", error);
@@ -140,7 +173,10 @@ const refreshPendingLocalChanges = async () => {
   }
 };
 
-const scheduleImmediateSync = (delay = IMMEDIATE_SYNC_DELAY) => {
+const scheduleImmediateSync = (
+  delay = IMMEDIATE_SYNC_DELAY,
+  options: { force?: boolean } = {}
+) => {
   if (!initialized) {
     return;
   }
@@ -148,7 +184,8 @@ const scheduleImmediateSync = (delay = IMMEDIATE_SYNC_DELAY) => {
     clearTimeout(immediateTimer);
   }
   immediateTimer = setTimeout(() => {
-    triggerEventSync().catch((error) => {
+    immediateTimer = null;
+    triggerEventSync(options).catch((error) => {
       console.warn("[eventSync] immediate sync failed", error);
     });
   }, delay);
@@ -177,6 +214,8 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
       : 15;
   const provider = sanitizeOptionalString(evento.provider as string) ?? "local";
   const accountId = sanitizeOptionalString(evento.accountId ?? undefined);
+  const hasIntegrationDate = evento.integrationDate !== undefined;
+  const integrationDate = hasIntegrationDate ? sanitizeIso(evento.integrationDate) ?? null : null;
 
   return {
     id: evento.syncId,
@@ -197,6 +236,8 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
     icsUid: sanitizeOptionalString(evento.icsUid),
     updatedAt,
     createdAt,
+    integrationDate,
+    integrationDateProvided: hasIntegrationDate,
   };
 };
 
@@ -216,6 +257,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
   const provider = sanitizeOptionalString(payload.provider) ?? "local";
   const status = sanitizeOptionalString(payload.status);
   const accountId = sanitizeOptionalString(payload.accountId);
+  const integrationDate = sanitizeIso(payload.integrationDate) ?? null;
   return {
     titulo: title,
     observacao: payload.notes ?? undefined,
@@ -235,6 +277,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
     updatedAt,
     createdAt,
     syncId: payload.id,
+    integrationDate: integrationDate ?? undefined,
   };
 };
 
@@ -245,7 +288,11 @@ const applyRemoteEvents = async (events: SyncEventPayload[]) => {
   suppressNotifications = true;
   try {
     for (const event of events) {
-      if (!event.id || !event.updatedAt) {
+      if (!event.id) {
+        continue;
+      }
+      registerSyncedVersion(event.id, event.updatedAt);
+      if (!event.updatedAt) {
         continue;
       }
       const local = await encontrarEventoPorSyncId(event.id);
@@ -286,7 +333,7 @@ const chunkEvents = (events: SyncEventPayload[]) => {
   return chunks;
 };
 
-const performSync = async () => {
+const performSync = async (forceRemotePull: boolean) => {
   await loadState();
   const since = lastSyncAt;
   const locais = await listarEventosAtualizadosDesde(since);
@@ -296,13 +343,25 @@ const performSync = async () => {
     .filter((item): item is SyncEventPayload => item !== null)
   );
 
-  const chunks = chunkEvents(payload);
+  const now = Date.now();
+  const shouldFetchRemote =
+    forceRemotePull ||
+    payload.length > 0 ||
+    !since ||
+    lastRemoteSyncAt === null ||
+    now - lastRemoteSyncAt >= MIN_REMOTE_SYNC_INTERVAL;
+
+  if (!shouldFetchRemote) {
+    if (!pending) {
+      hasPendingLocalChanges = false;
+    }
+    return;
+  }
+
+  const chunks = payload.length > 0 ? chunkEvents(payload) : [[]];
   const remoteEventMap = new Map<string, SyncEventPayload>();
   let latestServerTime: string | null = null;
-
-  if (chunks.length === 0) {
-    chunks.push([]);
-  }
+  let performedNetworkRequest = false;
 
   for (const chunk of chunks) {
     const body = JSON.stringify({
@@ -324,6 +383,8 @@ const performSync = async () => {
       const message = (data as any)?.error || response.statusText || "Sync failed";
       throw new Error(message);
     }
+
+    performedNetworkRequest = true;
 
     const remoteEvents = Array.isArray(data.events) ? data.events : [];
     for (const event of remoteEvents) {
@@ -353,12 +414,8 @@ const performSync = async () => {
 
     if (chunk.length > 0) {
       chunk.forEach((item) => {
-        if (item?.id && item?.updatedAt) {
-          const normalized = sanitizeIso(item.updatedAt) ?? item.updatedAt;
-          if (normalized) {
-            syncedEventVersions.set(item.id, normalized);
-            enforceSyncedCacheLimit();
-          }
+        if (item?.id) {
+          registerSyncedVersion(item.id, item.updatedAt);
         }
       });
     }
@@ -369,29 +426,43 @@ const performSync = async () => {
 
   const serverTimeIso = latestServerTime ?? new Date().toISOString();
   lastSyncAt = serverTimeIso;
+  if (performedNetworkRequest) {
+    lastRemoteSyncAt = Date.now();
+  }
   await persistState();
   if (!pending) {
     hasPendingLocalChanges = false;
   }
 };
 
-export const triggerEventSync = async () => {
+export const triggerEventSync = async (options: { force?: boolean } = {}) => {
+  const { force = false } = options;
+  if (force && immediateTimer) {
+    clearTimeout(immediateTimer);
+    immediateTimer = null;
+  }
   if (syncing) {
     pending = true;
+    pendingForce = pendingForce || force;
     return;
   }
   syncing = true;
   pending = false;
+  pendingForce = force;
   try {
-    await performSync();
+    await performSync(force);
   } catch (error) {
     console.warn("[eventSync] sync failed", error);
     throw error;
   } finally {
     syncing = false;
     if (pending) {
+      const forceNext = pendingForce;
       pending = false;
-      scheduleImmediateSync(IMMEDIATE_SYNC_DELAY);
+      pendingForce = false;
+      scheduleImmediateSync(IMMEDIATE_SYNC_DELAY, { force: forceNext });
+    } else {
+      pendingForce = false;
     }
   }
 };
@@ -404,13 +475,18 @@ export const initializeEventSync = () => {
   startInterval();
   refreshPendingLocalChanges()
     .then(() => {
-      if (hasPendingLocalChanges || !lastSyncAt) {
-        scheduleImmediateSync(INITIAL_SYNC_DELAY);
+      const now = Date.now();
+      const recentlySynced =
+        lastRemoteSyncAt !== null && now - lastRemoteSyncAt < MIN_REMOTE_SYNC_INTERVAL;
+      const shouldSchedule = hasPendingLocalChanges || !lastSyncAt || !recentlySynced;
+      if (shouldSchedule) {
+        const force = !lastSyncAt;
+        scheduleImmediateSync(INITIAL_SYNC_DELAY, { force });
       }
     })
     .catch((error) => {
       console.warn("[eventSync] failed to refresh pending changes", error);
-      scheduleImmediateSync(INITIAL_SYNC_DELAY);
+      scheduleImmediateSync(INITIAL_SYNC_DELAY, { force: true });
     });
   unsubscribeChanges = subscribeEventoChanges(() => {
     if (suppressNotifications) {

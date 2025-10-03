@@ -189,7 +189,26 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
   const outlookId = sanitizeSyncString(value.outlookId);
   const icsUid = sanitizeSyncString(value.icsUid);
   const duration = sanitizeDuration(value.duration);
-  const integrationDate = normalizeIsoString(value.integrationDate);
+  const hasIntegrationDateProp = Object.prototype.hasOwnProperty.call(
+    value,
+    "integrationDate"
+  );
+  const rawIntegrationDate = (value as any).integrationDate;
+  const integrationDate = normalizeIsoString(rawIntegrationDate);
+  const integrationDateProvidedOverride =
+    typeof (value as any).integrationDateProvided === "boolean"
+      ? ((value as any).integrationDateProvided as boolean)
+      : null;
+  let integrationDateProvided: boolean;
+  if (integrationDateProvidedOverride !== null) {
+    integrationDateProvided = integrationDateProvidedOverride;
+  } else if (integrationDate !== null) {
+    integrationDateProvided = true;
+  } else if (!hasIntegrationDateProp) {
+    integrationDateProvided = false;
+  } else {
+    integrationDateProvided = rawIntegrationDate === null;
+  }
 
   return {
     id,
@@ -211,6 +230,7 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
     updatedAt,
     createdAt,
     integrationDate: integrationDate ?? null,
+    integrationDateProvided,
   };
 };
 app.post("/oauth/google/exchange", async (req, res) => {

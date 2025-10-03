@@ -783,7 +783,7 @@ export default function ConfigScreen() {
       });
       await removeCalendarAccount(disconnectingAccount.id);
       try {
-        await triggerEventSync();
+        await triggerEventSync({ force: true });
       } catch (error) {
         console.warn("[config] failed to trigger sync after disconnect", error);
       }

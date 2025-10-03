@@ -294,7 +294,7 @@ export default function TasksScreen() {
     }
     await carregarTarefas();
     try {
-      await triggerEventSync();
+      await triggerEventSync({ force: true });
     } catch (error) {
       console.warn("[tasks] failed to trigger sync after save", error);
     }
@@ -323,7 +323,7 @@ export default function TasksScreen() {
       }
     }
     try {
-      await triggerEventSync();
+      await triggerEventSync({ force: true });
     } catch (error) {
       console.warn("[tasks] failed to trigger sync after delete", error);
     }
