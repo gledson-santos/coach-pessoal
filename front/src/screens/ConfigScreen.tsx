@@ -845,7 +845,7 @@ export default function ConfigScreen() {
               <Text style={styles.accountEmail}>{accountLabel}</Text>
               <Text style={styles.accountProvider}>{providerLabel}</Text>
               <Text style={styles.lastSyncLabel}>
-                Última sincronização: {account.lastSync ? new Date(account.lastSync).toLocaleString("pt-BR") : "Nunca"}
+                Sincronizado em: {account.lastSync ? new Date(account.lastSync).toLocaleString("pt-BR") : "Nunca"}
               </Text>
             </View>
           </View>
