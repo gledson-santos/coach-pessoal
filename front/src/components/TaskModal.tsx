@@ -366,10 +366,9 @@ export default function TaskModal({
               >
                 <Text style={styles.backButtonText}>←</Text>
               </TouchableOpacity>
-            ) : null}
-            <Text style={styles.titulo}>
-              {initialData ? initialData.titulo || "Tarefa" : "Nova Tarefa"}
-            </Text>
+            ) : (
+              <Text style={styles.titulo}>Nova Tarefa</Text>
+            )}
           </View>
 
           <View style={styles.field}>
