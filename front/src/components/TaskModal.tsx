@@ -636,8 +636,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   backButtonText: {
-    fontSize: 84,
-    lineHeight: 84,
+    fontSize: 42,
+    lineHeight: 42,
     fontWeight: "600",
   },
   titulo: { flex: 1, fontSize: 18, fontWeight: "bold" },
