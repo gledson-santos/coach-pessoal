@@ -827,6 +827,9 @@ export default function ConfigScreen() {
           : account.provider === "outlook"
           ? "Outlook/Office 365"
           : "Calendário ICS (somente leitura)";
+      const lastSyncText = account.lastSync
+        ? new Date(account.lastSync).toLocaleString("pt-BR")
+        : "Nunca";
 
       return (
         <View key={account.id} style={[styles.accountCard, { borderLeftColor: account.color }]}>
@@ -844,9 +847,7 @@ export default function ConfigScreen() {
               </View>
               <Text style={styles.accountEmail}>{accountLabel}</Text>
               <Text style={styles.accountProvider}>{providerLabel}</Text>
-              <Text style={styles.lastSyncLabel}>
-                Sincronizado em: {account.lastSync ? new Date(account.lastSync).toLocaleString("pt-BR") : "Nunca"}
-              </Text>
+              <Text style={styles.lastSyncLabel}>{`Sincronizado em: ${lastSyncText}`}</Text>
             </View>
           </View>
 
