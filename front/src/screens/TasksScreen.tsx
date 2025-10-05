@@ -421,6 +421,8 @@ export default function TasksScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+<<<<<<< HEAD
+<<<<<<< HEAD
         <View style={styles.headerTexts}>
           <Text style={styles.title}>Minhas Tarefas</Text>
           <Text style={styles.subtitle}>
@@ -430,6 +432,58 @@ export default function TasksScreen() {
         <TouchableOpacity style={styles.addButton} onPress={abrirNovaTarefa}>
           <Text style={styles.addButtonText}>+ Nova tarefa</Text>
         </TouchableOpacity>
+=======
+=======
+>>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
+        <View style={styles.headerTopRow}>
+          <Text style={styles.title}>Minhas Tarefas</Text>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={abrirNovaTarefa}
+          >
+            <Text style={styles.addButtonText}>+ Nova tarefa</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.subtitle}>
+          Organize e visualize tudo o que precisa fazer
+        </Text>
+      </View>
+      <View style={styles.filterBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {FILTERS.map((filter, index) => {
+            const isActive = filter.key === activeFilter;
+            const isLast = index === FILTERS.length - 1;
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={[
+                  styles.filterChip,
+                  isActive ? styles.filterChipActive : undefined,
+                  !isLast ? styles.filterChipSpacing : undefined,
+                ]}
+                onPress={() => setActiveFilter(filter.key)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    isActive ? styles.filterChipTextActive : undefined,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+<<<<<<< HEAD
+>>>>>>> 1b5d843400ba171fa40b830a49369eea04fd93ee
+=======
+>>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
       </View>
       <View style={styles.filterBarContainer}>
         <ScrollView
@@ -504,19 +558,36 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   header: {
+    marginBottom: 16,
+  },
+  headerTopRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     justifyContent: "space-between",
+<<<<<<< HEAD
+<<<<<<< HEAD
     marginBottom: 16,
   },
   headerTexts: {
     flex: 1,
     marginRight: 16,
+=======
+    gap: 12,
+>>>>>>> 1b5d843400ba171fa40b830a49369eea04fd93ee
+=======
+    gap: 12,
+>>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1f2d3d",
+    flex: 1,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    color: "#4b5563",
   },
   subtitle: {
     marginTop: 4,
