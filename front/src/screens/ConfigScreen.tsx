@@ -827,28 +827,31 @@ export default function ConfigScreen() {
           : account.provider === "outlook"
           ? "Outlook/Office 365"
           : "Calendário ICS (somente leitura)";
+      const lastSyncText = account.lastSync
+        ? new Date(account.lastSync).toLocaleString("pt-BR")
+        : "Nunca";
 
       return (
         <View key={account.id} style={[styles.accountCard, { borderLeftColor: account.color }]}>
           <View style={styles.accountHeader}>
             <Ionicons name={iconName} size={26} color={account.color} />
-            <View style={styles.accountInfo}>
-              <Text style={styles.accountEmail}>{accountLabel}</Text>
-              <Text style={styles.accountProvider}>{providerLabel}</Text>
-            </View>
-            <View style={styles.accountCategoryBadge}>
-              <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
-              <Text style={styles.accountCategoryText}>{categoryLabel}</Text>
+            <View style={styles.accountHeaderContent}>
+              <View style={styles.accountTagsRow}>
+                <View style={styles.accountCategoryBadge}>
+                  <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
+                  <Text style={styles.accountCategoryText}>{categoryLabel}</Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                  <Text style={styles.statusBadgeText}>{statusLabel}</Text>
+                </View>
+              </View>
             </View>
           </View>
 
-          <View style={styles.accountStatusRow}>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-              <Text style={styles.statusBadgeText}>{statusLabel}</Text>
-            </View>
-            <Text style={styles.lastSyncLabel}>
-              Última sincronização: {account.lastSync ? new Date(account.lastSync).toLocaleString("pt-BR") : "Nunca"}
-            </Text>
+          <View style={styles.accountDetails}>
+            <Text style={styles.accountEmail}>{accountLabel}</Text>
+            <Text style={styles.accountProvider}>{providerLabel}</Text>
+            <Text style={styles.lastSyncLabel}>{`Sincronizado em: ${lastSyncText}`}</Text>
           </View>
 
           <View style={styles.accountActions}>
@@ -1185,11 +1188,19 @@ const styles = StyleSheet.create({
   },
   accountHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
-  accountInfo: {
+  accountHeaderContent: {
     flex: 1,
+    gap: 4,
+  },
+  accountTagsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
   },
   accountEmail: {
     fontSize: 16,
@@ -1199,6 +1210,10 @@ const styles = StyleSheet.create({
   accountProvider: {
     color: "#64748b",
     fontSize: 13,
+  },
+  accountDetails: {
+    marginTop: 8,
+    gap: 4,
   },
   accountCategoryBadge: {
     flexDirection: "row",
@@ -1218,11 +1233,6 @@ const styles = StyleSheet.create({
     color: "#1f2937",
     fontWeight: "600",
     fontSize: 12,
-  },
-  accountStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
   statusBadge: {
     paddingHorizontal: 12,

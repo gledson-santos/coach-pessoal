@@ -10,12 +10,12 @@ export const CALENDAR_CATEGORIES: CalendarCategory[] = [
   {
     key: "personal",
     color: "#2a9d8f",
-    label: "Agenda pessoal",
+    label: "Pessoal",
   },
   {
     key: "work",
     color: "#264653",
-    label: "Agenda de trabalho",
+    label: "Trabalho",
   },
 ];
 
