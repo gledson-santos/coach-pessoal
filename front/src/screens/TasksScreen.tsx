@@ -25,6 +25,15 @@ import {
 } from "../database";
 import { filterVisibleEvents } from "../utils/eventFilters";
 type Task = Evento;
+type DisplayTask = Task & {
+  aggregatedCount?: number;
+};
+
+type Section = {
+  key: string;
+  title: string;
+  data: DisplayTask[];
+};
 const parseDate = (value?: string) => {
   if (!value) return null;
   const parsed = new Date(value);
@@ -86,16 +95,103 @@ const isRecurringTask = (task: Task) => {
   return false;
 };
 
+const getRecurringGroupKey = (task: Task): string | null => {
+  if (!isRecurringTask(task)) {
+    return null;
+  }
+
+  if (typeof task.icsUid === "string" && task.icsUid.includes("::")) {
+    return task.icsUid.split("::")[0]?.toLowerCase() ?? null;
+  }
+
+  if (typeof task.googleId === "string" && task.googleId.includes("_")) {
+    return task.googleId.split("_")[0]?.toLowerCase() ?? null;
+  }
+
+  if (typeof task.outlookId === "string" && task.outlookId.includes("_")) {
+    return task.outlookId.split("_")[0]?.toLowerCase() ?? null;
+  }
+
+  const title = (task.titulo ?? "").trim().toLowerCase();
+  const type = (task.tipo ?? "").trim().toLowerCase();
+  if (!title) {
+    return null;
+  }
+
+  return `${type}:${title}`;
+};
+
+const groupUpcomingRecurringTasks = (
+  tasks: Task[],
+  todayBase: Date
+): DisplayTask[] => {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const result: DisplayTask[] = [];
+  const grouped = new Map<string, DisplayTask>();
+
+  tasks.forEach((task) => {
+    const parsedDate = parseDate(task.data);
+    if (!parsedDate) {
+      result.push(task);
+      return;
+    }
+
+    const baseDate = new Date(
+      parsedDate.getFullYear(),
+      parsedDate.getMonth(),
+      parsedDate.getDate()
+    );
+
+    const diffDays = Math.floor(
+      (baseDate.getTime() - todayBase.getTime()) / msPerDay
+    );
+
+    const canGroup = diffDays > 1 && isRecurringTask(task);
+    if (!canGroup) {
+      result.push(task);
+      return;
+    }
+
+    const groupKey = getRecurringGroupKey(task);
+    if (!groupKey) {
+      result.push(task);
+      return;
+    }
+
+    const existing = grouped.get(groupKey);
+    if (existing) {
+      existing.aggregatedCount = (existing.aggregatedCount ?? 1) + 1;
+      return;
+    }
+
+    const clone: DisplayTask = { ...task, aggregatedCount: 1 };
+    grouped.set(groupKey, clone);
+    result.push(clone);
+  });
+
+  grouped.forEach((value) => {
+    if (value.aggregatedCount === 1) {
+      delete value.aggregatedCount;
+    }
+  });
+
+  return result;
+};
+
 type TaskCardProps = {
-  task: Task;
+  task: DisplayTask;
   onEdit: () => void;
 };
 const TaskCard = ({ task, onEdit }: TaskCardProps) => {
   const tempo = task.tempoExecucao ?? 15;
   const dataFormatada = formatDate(task.data);
   const diasEmAberto = calculateOpenDays(task);
+  const aggregatedCount = task.aggregatedCount ?? 0;
+  const hasAggregation = aggregatedCount > 1;
   const descricao = dataFormatada
-    ? `Execucao: ${dataFormatada}`
+    ? hasAggregation
+      ? `${aggregatedCount} próximas execuções agendadas`
+      : `Execução: ${dataFormatada}`
     : diasEmAberto <= 0
     ? "Criada hoje"
     : `Em aberto ha ${diasEmAberto} dia${diasEmAberto === 1 ? "" : "s"}`;
@@ -116,6 +212,13 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
             {recurring && (
               <View style={styles.recurringTag}>
                 <Text style={styles.recurringTagText}>Recorrente</Text>
+              </View>
+            )}
+            {hasAggregation && (
+              <View style={styles.aggregationTag}>
+                <Text style={styles.aggregationTagText}>
+                  +{aggregatedCount - 1} execuções
+                </Text>
               </View>
             )}
             <View style={[styles.cardCategoryBadge, { backgroundColor: badgeBackground }]}>
@@ -209,7 +312,7 @@ export default function TasksScreen() {
       return diasB - diasA;
     });
   }, [tasks]);
-  const sections = useMemo(() => {
+  const sections = useMemo<Section[]>(() => {
     const msPorDia = 1000 * 60 * 60 * 24;
     const agora = new Date();
     const hojeBase = new Date(
@@ -218,8 +321,8 @@ export default function TasksScreen() {
       agora.getDate()
     );
     const bucket = {
-      today: [] as Task[],
-      tomorrow: [] as Task[],
+      today: [] as DisplayTask[],
+      tomorrow: [] as DisplayTask[],
       upcoming: [] as Task[],
     };
     sortedTasks.forEach((task) => {
@@ -244,6 +347,7 @@ export default function TasksScreen() {
         bucket.upcoming.push(task);
       }
     });
+    const groupedUpcoming = groupUpcomingRecurringTasks(bucket.upcoming, hojeBase);
     return [
       {
         key: "today",
@@ -258,7 +362,7 @@ export default function TasksScreen() {
       {
         key: "upcoming",
         title: "Proximas",
-        data: bucket.upcoming,
+        data: groupedUpcoming,
       },
     ];
   }, [sortedTasks]);
@@ -483,6 +587,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   recurringTagText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  aggregationTag: {
+    backgroundColor: "#1d3557",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  aggregationTagText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "600",
