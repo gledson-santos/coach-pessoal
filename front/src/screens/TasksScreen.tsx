@@ -211,32 +211,32 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
       <View style={[styles.cardAccent, { backgroundColor: calendarColor }]} />
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
-          <View style={styles.cardHeaderRight}>
-            {recurring && (
-              <View style={styles.recurringTag}>
-                <Text style={styles.recurringTagText}>Recorrente</Text>
-              </View>
-            )}
-            <View style={[styles.cardCategoryBadge, { backgroundColor: badgeBackground }]}>
-              <View style={[styles.cardCategoryDot, { backgroundColor: calendarColor }]} />
-              <Text style={styles.cardCategoryText}>{categoryLabel}</Text>
-            </View>
-            <Ionicons name="create-outline" size={20} style={styles.cardHeaderIcon} />
-          </View>
           <Text style={styles.cardTitle} numberOfLines={2}>
             {task.titulo}
           </Text>
-        </View>
-        <View style={styles.cardMetaRow}>
-          <Ionicons name="time-outline" size={16} style={styles.metaIcon} />
-          <Text style={styles.cardMetaText}>{formatDuration(tempo)}</Text>
-          <View style={styles.metaDivider} />
-          <Ionicons name="speedometer-outline" size={16} style={styles.metaIcon} />
-          <Text style={styles.cardMetaText}>Dificuldade: {task.dificuldade}</Text>
+          <Ionicons name="create-outline" size={20} style={styles.cardHeaderIcon} />
         </View>
         <View style={styles.cardMetaRow}>
           <Ionicons name="calendar-outline" size={16} style={styles.metaIcon} />
-          <Text style={styles.cardSecondaryText}>{descricao}</Text>
+          <Text style={[styles.cardSecondaryText, styles.cardMetaPrimaryText]}>
+            {descricao}
+          </Text>
+          <View style={styles.metaDivider} />
+          <Ionicons name="time-outline" size={16} style={styles.metaIcon} />
+          <Text style={styles.cardMetaText}>{formatDuration(tempo)}</Text>
+        </View>
+        <View style={[styles.cardMetaRow, styles.cardMetaRowSpacing]}>
+          <Ionicons name="speedometer-outline" size={16} style={styles.metaIcon} />
+          <Text style={styles.cardMetaText}>Dificuldade: {task.dificuldade}</Text>
+          {recurring && (
+            <View style={[styles.recurringTag, styles.metaTag]}>
+              <Text style={styles.recurringTagText}>Recorrente</Text>
+            </View>
+          )}
+          <View style={[styles.cardCategoryBadge, styles.metaTag, { backgroundColor: badgeBackground }]}>
+            <View style={[styles.cardCategoryDot, { backgroundColor: calendarColor }]} />
+            <Text style={styles.cardCategoryText}>{categoryLabel}</Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -421,25 +421,12 @@ export default function TasksScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-<<<<<<< HEAD
-<<<<<<< HEAD
-        <View style={styles.headerTexts}>
-          <Text style={styles.title}>Minhas Tarefas</Text>
-          <Text style={styles.subtitle}>
-            Organize e visualize tudo o que precisa fazer
-          </Text>
-        </View>
-        <TouchableOpacity style={styles.addButton} onPress={abrirNovaTarefa}>
-          <Text style={styles.addButtonText}>+ Nova tarefa</Text>
-        </TouchableOpacity>
-=======
-=======
->>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
         <View style={styles.headerTopRow}>
           <Text style={styles.title}>Minhas Tarefas</Text>
           <TouchableOpacity
             style={styles.addButton}
             onPress={abrirNovaTarefa}
+            activeOpacity={0.85}
           >
             <Text style={styles.addButtonText}>+ Nova tarefa</Text>
           </TouchableOpacity>
@@ -447,43 +434,6 @@ export default function TasksScreen() {
         <Text style={styles.subtitle}>
           Organize e visualize tudo o que precisa fazer
         </Text>
-      </View>
-      <View style={styles.filterBarContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScrollContent}
-        >
-          {FILTERS.map((filter, index) => {
-            const isActive = filter.key === activeFilter;
-            const isLast = index === FILTERS.length - 1;
-            return (
-              <TouchableOpacity
-                key={filter.key}
-                style={[
-                  styles.filterChip,
-                  isActive ? styles.filterChipActive : undefined,
-                  !isLast ? styles.filterChipSpacing : undefined,
-                ]}
-                onPress={() => setActiveFilter(filter.key)}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    isActive ? styles.filterChipTextActive : undefined,
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-<<<<<<< HEAD
->>>>>>> 1b5d843400ba171fa40b830a49369eea04fd93ee
-=======
->>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
       </View>
       <View style={styles.filterBarContainer}>
         <ScrollView
@@ -555,7 +505,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#e6f4f1",
     paddingHorizontal: 20,
     paddingTop: 24,
-    paddingBottom: 24,
+    paddingBottom: 0,
   },
   header: {
     marginBottom: 16,
@@ -564,30 +514,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
-<<<<<<< HEAD
-<<<<<<< HEAD
-    marginBottom: 16,
-  },
-  headerTexts: {
-    flex: 1,
-    marginRight: 16,
-=======
     gap: 12,
->>>>>>> 1b5d843400ba171fa40b830a49369eea04fd93ee
-=======
-    gap: 12,
->>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
+    marginBottom: 12,
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1f2d3d",
     flex: 1,
-  },
-  subtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    color: "#4b5563",
   },
   subtitle: {
     marginTop: 4,
@@ -685,15 +619,11 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   cardHeader: {
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  cardHeaderRight: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-end",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
   },
   recurringTag: {
     backgroundColor: "#264653",
@@ -728,16 +658,20 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     color: "#1f2d3d",
-    alignSelf: "stretch",
+    flex: 1,
   },
   cardHeaderIcon: {
     color: "#1c6b73",
+    marginLeft: 12,
   },
   cardMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     marginTop: 10,
+  },
+  cardMetaRowSpacing: {
+    marginTop: 8,
   },
   metaIcon: {
     marginRight: 6,
@@ -746,6 +680,10 @@ const styles = StyleSheet.create({
   cardMetaText: {
     fontSize: 14,
     color: "#4b5563",
+    marginRight: 8,
+  },
+  cardMetaPrimaryText: {
+    flexShrink: 1,
     marginRight: 8,
   },
   metaDivider: {
@@ -759,6 +697,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#4b5563",
     flexShrink: 1,
+  },
+  metaTag: {
+    marginLeft: 12,
   },
 });
 

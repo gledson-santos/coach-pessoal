@@ -874,7 +874,11 @@ export default function ConfigScreen() {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
       <TouchableOpacity
         style={styles.importButton}
         onPress={openProviderModal}
@@ -1136,8 +1140,14 @@ export default function ConfigScreen() {
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+    backgroundColor: "#f4f7fb",
+  },
   container: {
-    padding: 24,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 0,
     gap: 16,
   },
   loadingContainer: {
