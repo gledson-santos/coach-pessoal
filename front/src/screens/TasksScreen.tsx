@@ -197,7 +197,7 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
       : `Execução: ${dataFormatada}`
     : diasEmAberto <= 0
     ? "Criada hoje"
-    : `Em aberto ha ${diasEmAberto} dia${diasEmAberto === 1 ? "" : "s"}`;
+    : `Em aberto há ${diasEmAberto} dia${diasEmAberto === 1 ? "" : "s"}`;
   const calendarColor = normalizeCalendarColor(task.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
   const categoryLabel = getCalendarCategoryLabel(task.cor ?? null);
   const badgeBackground = `${calendarColor}26`;
