@@ -833,22 +833,21 @@ export default function ConfigScreen() {
           <View style={styles.accountHeader}>
             <Ionicons name={iconName} size={26} color={account.color} />
             <View style={styles.accountInfo}>
+              <View style={styles.accountTagsRow}>
+                <View style={styles.accountCategoryBadge}>
+                  <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
+                  <Text style={styles.accountCategoryText}>{categoryLabel}</Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                  <Text style={styles.statusBadgeText}>{statusLabel}</Text>
+                </View>
+              </View>
               <Text style={styles.accountEmail}>{accountLabel}</Text>
               <Text style={styles.accountProvider}>{providerLabel}</Text>
+              <Text style={styles.lastSyncLabel}>
+                Última sincronização: {account.lastSync ? new Date(account.lastSync).toLocaleString("pt-BR") : "Nunca"}
+              </Text>
             </View>
-            <View style={styles.accountCategoryBadge}>
-              <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
-              <Text style={styles.accountCategoryText}>{categoryLabel}</Text>
-            </View>
-          </View>
-
-          <View style={styles.accountStatusRow}>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-              <Text style={styles.statusBadgeText}>{statusLabel}</Text>
-            </View>
-            <Text style={styles.lastSyncLabel}>
-              Última sincronização: {account.lastSync ? new Date(account.lastSync).toLocaleString("pt-BR") : "Nunca"}
-            </Text>
           </View>
 
           <View style={styles.accountActions}>
@@ -1185,11 +1184,19 @@ const styles = StyleSheet.create({
   },
   accountHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
   accountInfo: {
     flex: 1,
+    gap: 4,
+  },
+  accountTagsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
   },
   accountEmail: {
     fontSize: 16,
@@ -1219,11 +1226,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 12,
   },
-  accountStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -1237,6 +1239,7 @@ const styles = StyleSheet.create({
   lastSyncLabel: {
     color: "#64748b",
     fontSize: 12,
+    marginTop: 2,
   },
   accountActions: {
     flexDirection: "row",
