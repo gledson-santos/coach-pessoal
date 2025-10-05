@@ -874,11 +874,7 @@ export default function ConfigScreen() {
   );
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
-    >
+    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
       <TouchableOpacity
         style={styles.importButton}
         onPress={openProviderModal}
@@ -1143,15 +1139,13 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
     backgroundColor: "#f4f7fb",
-  },
-  container: {
     paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 0,
-    gap: 16,
   },
   loadingContainer: {
     paddingVertical: 32,
+    marginTop: 16,
     alignItems: "center",
   },
   importButton: {
@@ -1167,6 +1161,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 6,
+    marginBottom: 16,
   },
   importButtonText: {
     fontSize: 18,
@@ -1180,10 +1175,12 @@ const styles = StyleSheet.create({
   feedbackText: {
     color: "#2a9d8f",
     fontSize: 14,
+    marginBottom: 12,
   },
   errorText: {
     color: "#e53935",
     fontSize: 14,
+    marginBottom: 12,
   },
   accountCard: {
     backgroundColor: "#ffffff",
@@ -1195,6 +1192,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
+    marginBottom: 16,
   },
   accountHeader: {
     flexDirection: "row",
