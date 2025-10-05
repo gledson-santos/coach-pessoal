@@ -467,6 +467,39 @@ export default function TasksScreen() {
           })}
         </ScrollView>
       </View>
+      <View style={styles.filterBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {FILTERS.map((filter, index) => {
+            const isActive = filter.key === activeFilter;
+            const isLast = index === FILTERS.length - 1;
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={[
+                  styles.filterChip,
+                  isActive ? styles.filterChipActive : undefined,
+                  !isLast ? styles.filterChipSpacing : undefined,
+                ]}
+                onPress={() => setActiveFilter(filter.key)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    isActive ? styles.filterChipTextActive : undefined,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
       <ScrollView
         style={styles.list}
         contentContainerStyle={
@@ -520,6 +553,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#1f2d3d",
     flex: 1,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    color: "#4b5563",
   },
   subtitle: {
     marginTop: 4,
