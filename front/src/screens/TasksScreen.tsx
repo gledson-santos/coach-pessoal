@@ -25,6 +25,18 @@ import {
 } from "../database";
 import { filterVisibleEvents } from "../utils/eventFilters";
 type Task = Evento;
+type DisplayTask = Task & {
+  aggregatedCount?: number;
+};
+
+const FILTERS = [
+  { key: "atrasadas", label: "Atrasadas" },
+  { key: "hoje", label: "Hoje" },
+  { key: "proximas", label: "Próximas" },
+  { key: "semData", label: "Sem Data" },
+] as const;
+
+type FilterKey = (typeof FILTERS)[number]["key"];
 const parseDate = (value?: string) => {
   if (!value) return null;
   const parsed = new Date(value);
@@ -86,16 +98,103 @@ const isRecurringTask = (task: Task) => {
   return false;
 };
 
+const getRecurringGroupKey = (task: Task): string | null => {
+  if (!isRecurringTask(task)) {
+    return null;
+  }
+
+  if (typeof task.icsUid === "string" && task.icsUid.includes("::")) {
+    return task.icsUid.split("::")[0]?.toLowerCase() ?? null;
+  }
+
+  if (typeof task.googleId === "string" && task.googleId.includes("_")) {
+    return task.googleId.split("_")[0]?.toLowerCase() ?? null;
+  }
+
+  if (typeof task.outlookId === "string" && task.outlookId.includes("_")) {
+    return task.outlookId.split("_")[0]?.toLowerCase() ?? null;
+  }
+
+  const title = (task.titulo ?? "").trim().toLowerCase();
+  const type = (task.tipo ?? "").trim().toLowerCase();
+  if (!title) {
+    return null;
+  }
+
+  return `${type}:${title}`;
+};
+
+const groupUpcomingRecurringTasks = (
+  tasks: Task[],
+  todayBase: Date
+): DisplayTask[] => {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const result: DisplayTask[] = [];
+  const grouped = new Map<string, DisplayTask>();
+
+  tasks.forEach((task) => {
+    const parsedDate = parseDate(task.data);
+    if (!parsedDate) {
+      result.push(task);
+      return;
+    }
+
+    const baseDate = new Date(
+      parsedDate.getFullYear(),
+      parsedDate.getMonth(),
+      parsedDate.getDate()
+    );
+
+    const diffDays = Math.floor(
+      (baseDate.getTime() - todayBase.getTime()) / msPerDay
+    );
+
+    const canGroup = diffDays > 1 && isRecurringTask(task);
+    if (!canGroup) {
+      result.push(task);
+      return;
+    }
+
+    const groupKey = getRecurringGroupKey(task);
+    if (!groupKey) {
+      result.push(task);
+      return;
+    }
+
+    const existing = grouped.get(groupKey);
+    if (existing) {
+      existing.aggregatedCount = (existing.aggregatedCount ?? 1) + 1;
+      return;
+    }
+
+    const clone: DisplayTask = { ...task, aggregatedCount: 1 };
+    grouped.set(groupKey, clone);
+    result.push(clone);
+  });
+
+  grouped.forEach((value) => {
+    if (value.aggregatedCount === 1) {
+      delete value.aggregatedCount;
+    }
+  });
+
+  return result;
+};
+
 type TaskCardProps = {
-  task: Task;
+  task: DisplayTask;
   onEdit: () => void;
 };
 const TaskCard = ({ task, onEdit }: TaskCardProps) => {
   const tempo = task.tempoExecucao ?? 15;
   const dataFormatada = formatDate(task.data);
   const diasEmAberto = calculateOpenDays(task);
+  const aggregatedCount = task.aggregatedCount ?? 0;
+  const hasAggregation = aggregatedCount > 1;
   const descricao = dataFormatada
-    ? `Execucao: ${dataFormatada}`
+    ? hasAggregation
+      ? `${aggregatedCount} próximas execuções agendadas`
+      : `Execução: ${dataFormatada}`
     : diasEmAberto <= 0
     ? "Criada hoje"
     : `Em aberto ha ${diasEmAberto} dia${diasEmAberto === 1 ? "" : "s"}`;
@@ -147,6 +246,7 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>("hoje");
   const carregarTarefas = useCallback(async () => {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
@@ -190,9 +290,16 @@ export default function TasksScreen() {
       unsubscribe();
     };
   }, [carregarTarefas]);
-  const sortedTasks = useMemo(() => {
-    const copy = [...tasks];
-    return copy.sort((a, b) => {
+  const categorizedTasks = useMemo<Record<FilterKey, DisplayTask[]>>(() => {
+    const msPorDia = 1000 * 60 * 60 * 24;
+    const agora = new Date();
+    const hojeBase = new Date(
+      agora.getFullYear(),
+      agora.getMonth(),
+      agora.getDate()
+    );
+
+    const sorted = [...tasks].sort((a, b) => {
       const dataA = parseDate(a.data);
       const dataB = parseDate(b.data);
       if (dataA && dataB) {
@@ -208,65 +315,48 @@ export default function TasksScreen() {
       const diasB = calculateOpenDays(b);
       return diasB - diasA;
     });
-  }, [tasks]);
-  const sections = useMemo(() => {
-    const msPorDia = 1000 * 60 * 60 * 24;
-    const agora = new Date();
-    const hojeBase = new Date(
-      agora.getFullYear(),
-      agora.getMonth(),
-      agora.getDate()
-    );
-    const bucket = {
-      today: [] as Task[],
-      tomorrow: [] as Task[],
-      upcoming: [] as Task[],
+
+    const buckets: Record<FilterKey, DisplayTask[]> = {
+      atrasadas: [],
+      hoje: [],
+      proximas: [],
+      semData: [],
     };
-    sortedTasks.forEach((task) => {
+
+    const upcomingBuffer: Task[] = [];
+
+    sorted.forEach((task) => {
       const parsedDate = parseDate(task.data);
-      if (parsedDate) {
-        const dataBase = new Date(
-          parsedDate.getFullYear(),
-          parsedDate.getMonth(),
-          parsedDate.getDate()
-        );
-        const diffDias = Math.floor(
-          (dataBase.getTime() - hojeBase.getTime()) / msPorDia
-        );
-        if (diffDias <= 0) {
-          bucket.today.push(task);
-        } else if (diffDias === 1) {
-          bucket.tomorrow.push(task);
-        } else {
-          bucket.upcoming.push(task);
-        }
+      if (!parsedDate) {
+        buckets.semData.push(task);
+        return;
+      }
+
+      const dataBase = new Date(
+        parsedDate.getFullYear(),
+        parsedDate.getMonth(),
+        parsedDate.getDate()
+      );
+      const diffDias = Math.floor(
+        (dataBase.getTime() - hojeBase.getTime()) / msPorDia
+      );
+
+      if (diffDias < 0) {
+        buckets.atrasadas.push(task);
+      } else if (diffDias === 0) {
+        buckets.hoje.push(task);
       } else {
-        bucket.upcoming.push(task);
+        upcomingBuffer.push(task);
       }
     });
-    return [
-      {
-        key: "today",
-        title: "Hoje",
-        data: bucket.today,
-      },
-      {
-        key: "tomorrow",
-        title: "Amanha",
-        data: bucket.tomorrow,
-      },
-      {
-        key: "upcoming",
-        title: "Proximas",
-        data: bucket.upcoming,
-      },
-    ];
-  }, [sortedTasks]);
-  const sectionsWithData = useMemo(
-    () => sections.filter((section) => section.data.length > 0),
-    [sections]
-  );
-  const hasTasks = sectionsWithData.length > 0;
+
+    buckets.proximas = groupUpcomingRecurringTasks(upcomingBuffer, hojeBase);
+
+    return buckets;
+  }, [tasks]);
+
+  const displayedTasks = categorizedTasks[activeFilter];
+  const hasTasks = displayedTasks.length > 0;
   const abrirNovaTarefa = () => {
     setSelectedTask(null);
     setModalVisible(true);
@@ -331,10 +421,51 @@ export default function TasksScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Tarefas</Text>
-        <TouchableOpacity style={styles.addButton} onPress={abrirNovaTarefa}>
-          <Text style={styles.addButtonText}>+ Nova tarefa</Text>
-        </TouchableOpacity>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.title}>Minhas Tarefas</Text>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={abrirNovaTarefa}
+          >
+            <Text style={styles.addButtonText}>+ Nova tarefa</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.subtitle}>
+          Organize e visualize tudo o que precisa fazer
+        </Text>
+      </View>
+      <View style={styles.filterBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {FILTERS.map((filter, index) => {
+            const isActive = filter.key === activeFilter;
+            const isLast = index === FILTERS.length - 1;
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={[
+                  styles.filterChip,
+                  isActive ? styles.filterChipActive : undefined,
+                  !isLast ? styles.filterChipSpacing : undefined,
+                ]}
+                onPress={() => setActiveFilter(filter.key)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    isActive ? styles.filterChipTextActive : undefined,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
       <ScrollView
         style={styles.list}
@@ -344,25 +475,12 @@ export default function TasksScreen() {
         showsVerticalScrollIndicator={false}
       >
         {hasTasks ? (
-          sectionsWithData.map((section, index) => (
-            <View
-              key={section.key}
-              style={[
-                styles.section,
-                index === 0 ? styles.firstSection : undefined,
-              ]}
-            >
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              {section.data.map((task, taskIndex) => (
-                <TaskCard
-                  key={
-                    task.id ? String(task.id) : `${section.key}-${taskIndex}`
-                  }
-                  task={task}
-                  onEdit={() => abrirEdicao(task)}
-                />
-              ))}
-            </View>
+          displayedTasks.map((task, taskIndex) => (
+            <TaskCard
+              key={task.id ? String(task.id) : `${activeFilter}-${taskIndex}`}
+              task={task}
+              onEdit={() => abrirEdicao(task)}
+            />
           ))
         ) : (
           <Text style={styles.emptyText}>
@@ -389,15 +507,24 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   header: {
+    marginBottom: 16,
+  },
+  headerTopRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     justifyContent: "space-between",
-    marginBottom: 8,
+    gap: 12,
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1f2d3d",
+    flex: 1,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    color: "#4b5563",
   },
   addButton: {
     backgroundColor: "#2a9d8f",
@@ -413,6 +540,42 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: "#ffffff",
     fontWeight: "700",
+  },
+  filterBarContainer: {
+    backgroundColor: "#ffffff",
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 18,
+    marginBottom: 12,
+    shadowColor: "#0b4a4f",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
+    zIndex: 1,
+  },
+  filterScrollContent: {
+    paddingHorizontal: 6,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#e2f1ee",
+  },
+  filterChipSpacing: {
+    marginRight: 8,
+  },
+  filterChipActive: {
+    backgroundColor: "#2a9d8f",
+  },
+  filterChipText: {
+    color: "#1f2d3d",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  filterChipTextActive: {
+    color: "#ffffff",
   },
   list: {
     flex: 1,
@@ -432,18 +595,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#6b7280",
     lineHeight: 20,
-  },
-  section: {
-    marginTop: 24,
-  },
-  firstSection: {
-    marginTop: 0,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#5c6b73",
-    marginBottom: 12,
   },
   cardWrapper: {
     flexDirection: "row",
