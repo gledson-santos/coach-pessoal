@@ -214,13 +214,6 @@ const TaskCard = ({ task, onEdit }: TaskCardProps) => {
                 <Text style={styles.recurringTagText}>Recorrente</Text>
               </View>
             )}
-            {hasAggregation && (
-              <View style={styles.aggregationTag}>
-                <Text style={styles.aggregationTagText}>
-                  +{aggregatedCount - 1} execuções
-                </Text>
-              </View>
-            )}
             <View style={[styles.cardCategoryBadge, { backgroundColor: badgeBackground }]}>
               <View style={[styles.cardCategoryDot, { backgroundColor: calendarColor }]} />
               <Text style={styles.cardCategoryText}>{categoryLabel}</Text>
@@ -587,17 +580,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   recurringTagText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  aggregationTag: {
-    backgroundColor: "#1d3557",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  aggregationTagText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "600",
