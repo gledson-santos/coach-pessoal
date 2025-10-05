@@ -874,66 +874,73 @@ export default function ConfigScreen() {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <TouchableOpacity
-        style={styles.importButton}
-        onPress={openProviderModal}
-        disabled={connectingProvider !== null}
+    <View style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.importButtonText}>Importar Calendário</Text>
-        <View style={styles.importIconsRow}>
-          {providerOptions.map((option) => (
-            <MaterialCommunityIcons
-              key={option.id}
-              name={option.icon}
-              size={28}
-              color="#1f2d3d"
-              style={{ opacity: connectingProvider ? 0.4 : 1 }}
-            />
-          ))}
-        </View>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.importButton}
+          onPress={openProviderModal}
+          disabled={connectingProvider !== null}
+        >
+          <Text style={styles.importButtonText}>Importar Calendário</Text>
+          <View style={styles.importIconsRow}>
+            {providerOptions.map((option) => (
+              <MaterialCommunityIcons
+                key={option.id}
+                name={option.icon}
+                size={28}
+                color="#1f2d3d"
+                style={{ opacity: connectingProvider ? 0.4 : 1 }}
+              />
+            ))}
+          </View>
+        </TouchableOpacity>
 
-      {feedbackMessage ? <Text style={styles.feedbackText}>{feedbackMessage}</Text> : null}
-      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+        {feedbackMessage ? <Text style={styles.feedbackText}>{feedbackMessage}</Text> : null}
+        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2a9d8f" />
-        </View>
-      ) : (
-        sortedAccounts.map(renderAccountCard)
-      )}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#2a9d8f" />
+          </View>
+        ) : (
+          sortedAccounts.map(renderAccountCard)
+        )}
 
-      <Modal
-        visible={importModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setImportModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.providerModalContent}>
-            <Text style={styles.modalTitle}>Escolha o calendário</Text>
-            <Text style={styles.modalMessage}>Selecione o provedor que deseja importar.</Text>
-            <View style={styles.providerList}>
-              {providerOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.id}
-                  style={styles.providerOption}
-                  onPress={() => handleSelectProvider(option)}
-                >
-                  <MaterialCommunityIcons name={option.icon} size={28} color="#264653" />
-                  <View style={styles.providerTexts}>
-                    <Text style={styles.providerTitle}>{option.title}</Text>
-                    <Text style={styles.providerSubtitle}>{option.subtitle}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity style={styles.modalCancelButton} onPress={() => setImportModalVisible(false)}>
-              <Text style={styles.modalCancelText}>Cancelar</Text>
-            </TouchableOpacity>
+        <Modal
+          visible={importModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setImportModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.providerModalContent}>
+              <Text style={styles.modalTitle}>Escolha o calendário</Text>
+              <Text style={styles.modalMessage}>Selecione o provedor que deseja importar.</Text>
+              <View style={styles.providerList}>
+                {providerOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={styles.providerOption}
+                    onPress={() => handleSelectProvider(option)}
+                  >
+                    <MaterialCommunityIcons name={option.icon} size={28} color="#264653" />
+                    <View style={styles.providerTexts}>
+                      <Text style={styles.providerTitle}>{option.title}</Text>
+                      <Text style={styles.providerSubtitle}>{option.subtitle}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setImportModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancelar</Text>
+              </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1131,17 +1138,25 @@ export default function ConfigScreen() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    gap: 16,
+  screen: {
+    flex: 1,
+    backgroundColor: "#f4f7fb",
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 0,
+  },
+  contentContainer: {
+    paddingBottom: 0,
   },
   loadingContainer: {
     paddingVertical: 32,
+    marginTop: 16,
     alignItems: "center",
   },
   importButton: {
@@ -1157,6 +1172,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 6,
+    marginBottom: 16,
   },
   importButtonText: {
     fontSize: 18,
@@ -1170,10 +1186,12 @@ const styles = StyleSheet.create({
   feedbackText: {
     color: "#2a9d8f",
     fontSize: 14,
+    marginBottom: 12,
   },
   errorText: {
     color: "#e53935",
     fontSize: 14,
+    marginBottom: 12,
   },
   accountCard: {
     backgroundColor: "#ffffff",
@@ -1185,6 +1203,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
+    marginBottom: 16,
   },
   accountHeader: {
     flexDirection: "row",
