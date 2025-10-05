@@ -1147,10 +1147,11 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#f4f7fb",
-  },
-  contentContainer: {
     paddingHorizontal: 20,
     paddingTop: 24,
+    paddingBottom: 0,
+  },
+  contentContainer: {
     paddingBottom: 0,
   },
   loadingContainer: {
