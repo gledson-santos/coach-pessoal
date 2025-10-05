@@ -422,6 +422,7 @@ export default function TasksScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
 <<<<<<< HEAD
+<<<<<<< HEAD
         <View style={styles.headerTexts}>
           <Text style={styles.title}>Minhas Tarefas</Text>
           <Text style={styles.subtitle}>
@@ -432,6 +433,8 @@ export default function TasksScreen() {
           <Text style={styles.addButtonText}>+ Nova tarefa</Text>
         </TouchableOpacity>
 =======
+=======
+>>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
         <View style={styles.headerTopRow}>
           <Text style={styles.title}>Minhas Tarefas</Text>
           <TouchableOpacity
@@ -477,7 +480,10 @@ export default function TasksScreen() {
             );
           })}
         </ScrollView>
+<<<<<<< HEAD
 >>>>>>> 1b5d843400ba171fa40b830a49369eea04fd93ee
+=======
+>>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
       </View>
       <View style={styles.filterBarContainer}>
         <ScrollView
@@ -559,6 +565,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "space-between",
 <<<<<<< HEAD
+<<<<<<< HEAD
     marginBottom: 16,
   },
   headerTexts: {
@@ -567,6 +574,9 @@ const styles = StyleSheet.create({
 =======
     gap: 12,
 >>>>>>> 1b5d843400ba171fa40b830a49369eea04fd93ee
+=======
+    gap: 12,
+>>>>>>> 6c0a111803a8b5dbb2d0bf6d012e2917d52ab5e0
   },
   title: {
     fontSize: 24,
