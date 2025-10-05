@@ -835,7 +835,7 @@ export default function ConfigScreen() {
         <View key={account.id} style={[styles.accountCard, { borderLeftColor: account.color }]}>
           <View style={styles.accountHeader}>
             <Ionicons name={iconName} size={26} color={account.color} />
-            <View style={styles.accountInfo}>
+            <View style={styles.accountHeaderContent}>
               <View style={styles.accountTagsRow}>
                 <View style={styles.accountCategoryBadge}>
                   <View style={[styles.accountCategoryDot, { backgroundColor: account.color }]} />
@@ -845,10 +845,13 @@ export default function ConfigScreen() {
                   <Text style={styles.statusBadgeText}>{statusLabel}</Text>
                 </View>
               </View>
-              <Text style={styles.accountEmail}>{accountLabel}</Text>
-              <Text style={styles.accountProvider}>{providerLabel}</Text>
-              <Text style={styles.lastSyncLabel}>{`Sincronizado em: ${lastSyncText}`}</Text>
             </View>
+          </View>
+
+          <View style={styles.accountDetails}>
+            <Text style={styles.accountEmail}>{accountLabel}</Text>
+            <Text style={styles.accountProvider}>{providerLabel}</Text>
+            <Text style={styles.lastSyncLabel}>{`Sincronizado em: ${lastSyncText}`}</Text>
           </View>
 
           <View style={styles.accountActions}>
@@ -1188,7 +1191,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
   },
-  accountInfo: {
+  accountHeaderContent: {
     flex: 1,
     gap: 4,
   },
@@ -1207,6 +1210,10 @@ const styles = StyleSheet.create({
   accountProvider: {
     color: "#64748b",
     fontSize: 13,
+  },
+  accountDetails: {
+    marginTop: 8,
+    gap: 4,
   },
   accountCategoryBadge: {
     flexDirection: "row",
@@ -1240,7 +1247,6 @@ const styles = StyleSheet.create({
   lastSyncLabel: {
     color: "#64748b",
     fontSize: 12,
-    marginTop: 2,
   },
   accountActions: {
     flexDirection: "row",
