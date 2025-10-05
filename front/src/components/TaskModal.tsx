@@ -94,6 +94,14 @@ export default function TaskModal({
   const [mostrarDuracoes, setMostrarDuracoes] = useState(false);
   const [mostrarModalInicio, setMostrarModalInicio] = useState(false);
   const [textoConfirmacao, setTextoConfirmacao] = useState("");
+  const [dadosOriginais, setDadosOriginais] = useState({
+    titulo: "",
+    observacao: "",
+    data: "",
+    tipo: "",
+    dificuldade: "",
+    tempoExecucao: 15,
+  });
   const dataInputRef = useRef<any>(null);
 
   useEffect(() => {
@@ -104,6 +112,14 @@ export default function TaskModal({
       setTipo(initialData.tipo || "");
       setDificuldade(initialData.dificuldade || "");
       setTempoExecucao(initialData.tempoExecucao ?? 15);
+      setDadosOriginais({
+        titulo: initialData.titulo || "",
+        observacao: initialData.observacao || "",
+        data: initialData.data || "",
+        tipo: initialData.tipo || "",
+        dificuldade: initialData.dificuldade || "",
+        tempoExecucao: initialData.tempoExecucao ?? 15,
+      });
     } else {
       setTitulo("");
       setObservacao("");
@@ -111,6 +127,14 @@ export default function TaskModal({
       setTipo("");
       setDificuldade("");
       setTempoExecucao(15);
+      setDadosOriginais({
+        titulo: "",
+        observacao: "",
+        data: "",
+        tipo: "",
+        dificuldade: "",
+        tempoExecucao: 15,
+      });
     }
     setMostrarDatePicker(false);
     setMostrarDuracoes(false);
@@ -180,9 +204,48 @@ export default function TaskModal({
     return convertida;
   };
 
+  const camposAtuais = useMemo(
+    () => ({
+      titulo,
+      observacao,
+      data,
+      tipo,
+      dificuldade,
+      tempoExecucao,
+    }),
+    [titulo, observacao, data, tipo, dificuldade, tempoExecucao]
+  );
+
+  const houveAlteracao = useMemo(
+    () =>
+      Object.entries(camposAtuais).some(([chave, valor]) => {
+        const chaveTipada = chave as keyof typeof dadosOriginais;
+        return valor !== dadosOriginais[chaveTipada];
+      }),
+    [camposAtuais, dadosOriginais]
+  );
+
+  const camposObrigatoriosPreenchidos = useMemo(
+    () =>
+      Boolean(
+        titulo.trim() &&
+          tipo.trim() &&
+          dificuldade.trim() &&
+          tempoExecucao
+      ),
+    [titulo, tipo, dificuldade, tempoExecucao]
+  );
+
+  const podeSalvar = camposObrigatoriosPreenchidos && houveAlteracao;
+
   const salvar = async () => {
-    if (!titulo || !tipo || !dificuldade || !tempoExecucao) {
+    if (!camposObrigatoriosPreenchidos) {
       alert("Preencha os campos obrigatorios");
+      return;
+    }
+
+    if (!houveAlteracao) {
+      alert("Nenhuma alteração foi realizada.");
       return;
     }
     await Promise.resolve(
@@ -262,17 +325,31 @@ export default function TaskModal({
     return `Começo ${nomeTarefa} às ${horaInicio}, por ${duracao}, sem distrações. Se eu travar, realizo algumas ações essenciais para essa atividade`;
   }, [horaInicio, tempoExecucao, titulo, initialData?.titulo]);
 
+  const normalizar = (valor: string) =>
+    valor
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  const textoConfirmacaoValido = useMemo(() => {
+    const texto = normalizar(textoConfirmacao.trim());
+    return texto.includes("comeco") && texto.includes("distracoes");
+  }, [textoConfirmacao]);
+
   const iniciar = () => {
     setTextoConfirmacao("");
     setMostrarModalInicio(true);
   };
 
   const confirmarInicio = () => {
-    if (textoConfirmacao.trim() !== fraseConfirmacao) {
-      alert("Confirme a frase exatamente como exibida para iniciar.");
+    if (!textoConfirmacaoValido) {
+      alert(
+        "Confirme o compromisso incluindo as palavras 'começo' e 'distrações'."
+      );
       return;
     }
     setMostrarModalInicio(false);
+    setTextoConfirmacao("");
     onClose();
   };
 
@@ -471,19 +548,20 @@ export default function TaskModal({
           <View style={styles.btnRow}>
             {initialData && onDelete && (
               <TouchableOpacity style={styles.excluir} onPress={excluir}>
-                <Text style={{ color: "#fff" }}>Excluir</Text>
+                <Text style={styles.textoBotaoBranco}>Excluir</Text>
               </TouchableOpacity>
             )}
 
             <TouchableOpacity
-              style={[styles.iniciar, initialData ? undefined : styles.iniciarFull]}
-              onPress={iniciar}
+              style={[styles.salvar, !podeSalvar && styles.salvarDesabilitado]}
+              onPress={salvar}
+              disabled={!podeSalvar}
             >
-              <Text style={{ color: "#2a9d8f" }}>Iniciar</Text>
+              <Text style={styles.textoBotaoBranco}>Salvar</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.salvar} onPress={salvar}>
-              <Text style={{ color: "#fff" }}>Salvar</Text>
+            <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
+              <Text style={styles.iniciarTexto}>Iniciar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -500,7 +578,7 @@ export default function TaskModal({
               "{fraseConfirmacao}"
             </Text>
             <TextInput
-              placeholder="Digite a frase exatamente como acima"
+              placeholder="Digite o compromisso para iniciar"
               style={[styles.input, styles.textArea, styles.inputConfirmacao]}
               multiline
               value={textoConfirmacao}
@@ -518,11 +596,11 @@ export default function TaskModal({
               </TouchableOpacity>
               <TouchableOpacity
                 style={
-                  textoConfirmacao.trim() === fraseConfirmacao
+                  textoConfirmacaoValido
                     ? styles.confirmarInicio
                     : [styles.confirmarInicio, styles.confirmarInicioDesabilitado]
                 }
-                disabled={textoConfirmacao.trim() !== fraseConfirmacao}
+                disabled={!textoConfirmacaoValido}
                 onPress={confirmarInicio}
               >
                 <Text style={styles.confirmarInicioTexto}>Começar</Text>
@@ -558,7 +636,8 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   backButtonText: {
-    fontSize: 20,
+    fontSize: 28,
+    fontWeight: "600",
   },
   titulo: { flex: 1, fontSize: 18, fontWeight: "bold" },
   field: {
@@ -677,22 +756,30 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
   },
-  iniciar: {
-    backgroundColor: "#f1f1f1",
-    padding: 10,
-    borderRadius: 6,
-    flex: 1,
-    alignItems: "center",
-  },
-  iniciarFull: {
-    flex: 1.2,
-  },
   salvar: {
     backgroundColor: "#2a9d8f",
     padding: 10,
     borderRadius: 6,
     flex: 1,
     alignItems: "center",
+  },
+  salvarDesabilitado: {
+    backgroundColor: "#a7dcd3",
+  },
+  iniciar: {
+    backgroundColor: "#1e88e5",
+    padding: 10,
+    borderRadius: 6,
+    flex: 1,
+    alignItems: "center",
+  },
+  iniciarTexto: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  textoBotaoBranco: {
+    color: "#fff",
+    fontWeight: "600",
   },
   modalInicio: {
     width: "90%",
