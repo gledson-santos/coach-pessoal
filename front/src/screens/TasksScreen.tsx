@@ -499,6 +499,19 @@ export default function TasksScreen() {
     []
   );
 
+  const abrirFinalizacao = useCallback((state: PomodoroState, autoCompleted: boolean) => {
+    setFinalizeContext({
+      task: state.task,
+      sentimentoInicio: state.sentimentoInicio,
+      autoCompleted,
+    });
+    setSentimentoFinal(null);
+    setAtividadeConcluida(null);
+    setFollowUpDate(null);
+    setMostrarFollowUpPicker(false);
+    setFinalizeModalVisible(true);
+  }, []);
+
   useEffect(() => {
     const awaiting = Boolean(timerState?.awaitingAction);
     if (!awaitingActionRef.current && awaiting) {
@@ -617,19 +630,6 @@ export default function TasksScreen() {
       unsubscribe();
     };
   }, [carregarTarefas]);
-
-  const abrirFinalizacao = useCallback((state: PomodoroState, autoCompleted: boolean) => {
-    setFinalizeContext({
-      task: state.task,
-      sentimentoInicio: state.sentimentoInicio,
-      autoCompleted,
-    });
-    setSentimentoFinal(null);
-    setAtividadeConcluida(null);
-    setFollowUpDate(null);
-    setMostrarFollowUpPicker(false);
-    setFinalizeModalVisible(true);
-  }, []);
 
   const handleStartTask = useCallback(
     async (task: Task, { sentimentoInicio }: { sentimentoInicio: number }) => {
