@@ -26,6 +26,14 @@ export type Evento = {
   sentimentoInicio?: number | null;
   sentimentoFim?: number | null;
   concluida?: boolean;
+  pomodoroStage?: "focus" | "break" | "finished" | null;
+  pomodoroCurrentCycle?: number | null;
+  pomodoroTargetTimestamp?: string | null;
+  pomodoroRemainingMs?: number | null;
+  pomodoroPaused?: boolean | null;
+  pomodoroAwaitingAction?: boolean | null;
+  pomodoroCycleDurations?: number[] | null;
+  pomodoroBreakDuration?: number | null;
 };
 
 const DEFAULT_TEMPO_EXECUCAO = 15;
@@ -100,6 +108,63 @@ const sanitizeBoolean = (value: unknown, fallback: boolean = false) => {
     }
   }
   return fallback;
+};
+
+const sanitizeNonNegativeInteger = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value < 0) {
+      return 0;
+    }
+    return Math.round(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return sanitizeNonNegativeInteger(parsed);
+    }
+  }
+  return null;
+};
+
+const sanitizePomodoroStage = (
+  value: unknown
+): "focus" | "break" | "finished" | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "focus" || normalized === "break" || normalized === "finished") {
+    return normalized as "focus" | "break" | "finished";
+  }
+  return null;
+};
+
+const sanitizeCycleDurations = (value: unknown): number[] | null => {
+  if (!value && value !== 0) {
+    return null;
+  }
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) {
+    return null;
+  }
+  const sanitized: number[] = [];
+  parsed.forEach((item) => {
+    const sanitizedItem = sanitizeNonNegativeInteger(item);
+    if (sanitizedItem !== null && sanitizedItem > 0) {
+      sanitized.push(sanitizedItem);
+    }
+  });
+  if (!sanitized.length) {
+    return null;
+  }
+  return sanitized;
 };
 
 const adicionarColuna = async (
@@ -187,7 +252,15 @@ const dbPromise = (async () => {
       status TEXT DEFAULT 'ativo',
       sentimentoInicio INTEGER,
       sentimentoFim INTEGER,
-      concluida INTEGER DEFAULT 0
+      concluida INTEGER DEFAULT 0,
+      pomodoroStage TEXT,
+      pomodoroCurrentCycle INTEGER,
+      pomodoroTargetTimestamp TEXT,
+      pomodoroRemainingMs INTEGER,
+      pomodoroPaused INTEGER DEFAULT 0,
+      pomodoroAwaitingAction INTEGER DEFAULT 0,
+      pomodoroCycleDurations TEXT,
+      pomodoroBreakDuration INTEGER
     );
   `);
 
@@ -205,6 +278,14 @@ const dbPromise = (async () => {
   await adicionarColuna(database, "sentimentoInicio", "INTEGER");
   await adicionarColuna(database, "sentimentoFim", "INTEGER");
   await adicionarColuna(database, "concluida", "INTEGER DEFAULT 0");
+  await adicionarColuna(database, "pomodoroStage", "TEXT");
+  await adicionarColuna(database, "pomodoroCurrentCycle", "INTEGER");
+  await adicionarColuna(database, "pomodoroTargetTimestamp", "TEXT");
+  await adicionarColuna(database, "pomodoroRemainingMs", "INTEGER");
+  await adicionarColuna(database, "pomodoroPaused", "INTEGER DEFAULT 0");
+  await adicionarColuna(database, "pomodoroAwaitingAction", "INTEGER DEFAULT 0");
+  await adicionarColuna(database, "pomodoroCycleDurations", "TEXT");
+  await adicionarColuna(database, "pomodoroBreakDuration", "INTEGER");
 
   await database.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_eventos_provider ON eventos(provider)"
@@ -289,6 +370,14 @@ const mapRowToEvento = (row: any): Evento => ({
   sentimentoInicio: sanitizeSentimento(row.sentimentoInicio),
   sentimentoFim: sanitizeSentimento(row.sentimentoFim),
   concluida: sanitizeBoolean(row.concluida, false),
+  pomodoroStage: sanitizePomodoroStage(row.pomodoroStage),
+  pomodoroCurrentCycle: sanitizeNonNegativeInteger(row.pomodoroCurrentCycle),
+  pomodoroTargetTimestamp: sanitizeIsoString(row.pomodoroTargetTimestamp),
+  pomodoroRemainingMs: sanitizeNonNegativeInteger(row.pomodoroRemainingMs),
+  pomodoroPaused: sanitizeBoolean(row.pomodoroPaused, false),
+  pomodoroAwaitingAction: sanitizeBoolean(row.pomodoroAwaitingAction, false),
+  pomodoroCycleDurations: sanitizeCycleDurations(row.pomodoroCycleDurations),
+  pomodoroBreakDuration: sanitizeNonNegativeInteger(row.pomodoroBreakDuration),
 });
 
 const normalizarEvento = (ev: Evento): Evento => {
@@ -511,6 +600,119 @@ export async function atualizarEvento(ev: Evento) {
 
   await withDatabase(async (db) => {
     await atualizarEventoInternal(db, ev);
+  });
+}
+
+type PomodoroEstadoAtualizacao = {
+  stage?: "focus" | "break" | "finished" | null;
+  currentCycle?: number | null;
+  targetTimestamp?: string | null;
+  remainingMs?: number | null;
+  paused?: boolean | null;
+  awaitingAction?: boolean | null;
+  cycleDurations?: number[] | null;
+  breakDuration?: number | null;
+};
+
+export async function atualizarPomodoroEstado(
+  eventoId: number,
+  estado: PomodoroEstadoAtualizacao
+) {
+  if (!eventoId) {
+    return;
+  }
+
+  const columns: string[] = [];
+  const values: any[] = [];
+
+  if (estado.stage !== undefined) {
+    const stage =
+      estado.stage === null ? null : sanitizePomodoroStage(estado.stage);
+    columns.push("pomodoroStage = ?");
+    values.push(stage);
+  }
+
+  if (estado.currentCycle !== undefined) {
+    const current =
+      estado.currentCycle === null
+        ? null
+        : sanitizeNonNegativeInteger(estado.currentCycle);
+    columns.push("pomodoroCurrentCycle = ?");
+    values.push(current);
+  }
+
+  if (estado.targetTimestamp !== undefined) {
+    const target =
+      estado.targetTimestamp === null
+        ? null
+        : sanitizeIsoString(estado.targetTimestamp);
+    columns.push("pomodoroTargetTimestamp = ?");
+    values.push(target);
+  }
+
+  if (estado.remainingMs !== undefined) {
+    const remaining =
+      estado.remainingMs === null
+        ? null
+        : sanitizeNonNegativeInteger(estado.remainingMs);
+    columns.push("pomodoroRemainingMs = ?");
+    values.push(remaining);
+  }
+
+  if (estado.paused !== undefined) {
+    if (estado.paused === null) {
+      columns.push("pomodoroPaused = NULL");
+    } else {
+      columns.push("pomodoroPaused = ?");
+      values.push(sanitizeBoolean(estado.paused) ? 1 : 0);
+    }
+  }
+
+  if (estado.awaitingAction !== undefined) {
+    if (estado.awaitingAction === null) {
+      columns.push("pomodoroAwaitingAction = NULL");
+    } else {
+      columns.push("pomodoroAwaitingAction = ?");
+      values.push(sanitizeBoolean(estado.awaitingAction) ? 1 : 0);
+    }
+  }
+
+  if (estado.cycleDurations !== undefined) {
+    const sanitizedDurations =
+      estado.cycleDurations === null
+        ? null
+        : sanitizeCycleDurations(estado.cycleDurations);
+    columns.push("pomodoroCycleDurations = ?");
+    values.push(
+      sanitizedDurations && sanitizedDurations.length
+        ? JSON.stringify(sanitizedDurations)
+        : null
+    );
+  }
+
+  if (estado.breakDuration !== undefined) {
+    const sanitizedBreak =
+      estado.breakDuration === null
+        ? null
+        : sanitizeNonNegativeInteger(estado.breakDuration);
+    columns.push("pomodoroBreakDuration = ?");
+    values.push(sanitizedBreak);
+  }
+
+  if (!columns.length) {
+    return;
+  }
+
+  const updatedAt = new Date().toISOString();
+  columns.push("updatedAt = ?");
+  values.push(updatedAt);
+
+  await withDatabase(async (db) => {
+    await db.runAsync(
+      `UPDATE eventos SET ${columns.join(", ")} WHERE id = ?`,
+      [...values, eventoId]
+    );
+    notifyChange();
   });
 }
 

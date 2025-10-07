@@ -9,7 +9,9 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Vibration,
 } from "react-native";
+
 
 import DateTimePicker, {
   DateTimePickerEvent,
@@ -26,9 +28,11 @@ import { triggerEventSync } from "../services/eventSync";
 import {
   Evento,
   atualizarEvento,
+  atualizarPomodoroEstado,
   deletarEvento,
   listarEventos,
   salvarEvento,
+  subscribeEventoChanges,
 } from "../database";
 import { filterVisibleEvents } from "../utils/eventFilters";
 type Task = Evento;
@@ -47,6 +51,8 @@ type PomodoroState = {
   remainingMs: number;
   paused: boolean;
   breakDuration: number;
+  awaitingAction: boolean;
+  targetTimestamp: number | null;
 };
 
 type FinalizeContext = {
@@ -56,6 +62,7 @@ type FinalizeContext = {
 };
 
 const BREAK_DURATION_MINUTES = 5;
+const TIMER_TOP_PADDING = Platform.select({ ios: 60, android: 40, default: 32 });
 
 const formatCountdown = (ms: number) => {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -335,6 +342,7 @@ export default function TasksScreen() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("hoje");
   const [timerState, setTimerState] = useState<PomodoroState | null>(null);
+  const [timerExpanded, setTimerExpanded] = useState(false);
   const [finalizeModalVisible, setFinalizeModalVisible] = useState(false);
   const [finalizeContext, setFinalizeContext] = useState<FinalizeContext | null>(null);
   const [sentimentoFinal, setSentimentoFinal] = useState<number | null>(null);
@@ -342,6 +350,8 @@ export default function TasksScreen() {
   const [followUpDate, setFollowUpDate] = useState<string | null>(null);
   const [mostrarFollowUpPicker, setMostrarFollowUpPicker] = useState(false);
   const followUpInputRef = useRef<any>(null);
+  const awaitingActionRef = useRef(false);
+  const finalizeHandledRef = useRef<number | null>(null);
   const carregarTarefas = useCallback(async () => {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
@@ -352,6 +362,227 @@ export default function TasksScreen() {
   useEffect(() => {
     carregarTarefas();
   }, [carregarTarefas]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeEventoChanges(() => {
+      carregarTarefas();
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [carregarTarefas]);
+
+  const triggerStageAlert = useCallback(() => {
+    try {
+      Vibration.vibrate([0, 350, 150, 350]);
+    } catch (error) {
+      console.warn("[tasks] failed to vibrate device", error);
+    }
+  }, []);
+
+  const mapStateToTask = useCallback((state: PomodoroState): Task => {
+    const sanitizedRemaining = Math.max(0, Math.round(state.remainingMs));
+    const targetIso =
+      !state.paused && !state.awaitingAction && state.targetTimestamp
+        ? new Date(state.targetTimestamp).toISOString()
+        : null;
+    return {
+      ...state.task,
+      sentimentoInicio: state.sentimentoInicio,
+      pomodoroStage: state.stage,
+      pomodoroCurrentCycle: state.currentCycle,
+      pomodoroRemainingMs: sanitizedRemaining,
+      pomodoroPaused: state.paused,
+      pomodoroAwaitingAction: state.awaitingAction,
+      pomodoroCycleDurations: state.cycleDurations,
+      pomodoroBreakDuration: state.breakDuration,
+      pomodoroTargetTimestamp: targetIso,
+    } as Task;
+  }, []);
+
+  const persistPomodoroSnapshot = useCallback(
+    (state: PomodoroState) => {
+      if (!state.task.id) {
+        return;
+      }
+      const sanitizedRemaining = Math.max(0, Math.round(state.remainingMs));
+      const targetIso =
+        !state.paused && !state.awaitingAction && state.targetTimestamp
+          ? new Date(state.targetTimestamp).toISOString()
+          : null;
+      atualizarPomodoroEstado(state.task.id, {
+        stage: state.stage,
+        currentCycle: state.currentCycle,
+        remainingMs: sanitizedRemaining,
+        paused: state.paused,
+        awaitingAction: state.awaitingAction,
+        cycleDurations: state.cycleDurations,
+        breakDuration: state.breakDuration,
+        targetTimestamp: targetIso,
+      }).catch((error) => {
+        console.warn("[tasks] failed to persist pomodoro", error);
+      });
+    },
+    []
+  );
+
+  const buildTimerStateFromTask = useCallback(
+    (task: Task): PomodoroState | null => {
+      if (typeof task.sentimentoInicio !== "number") {
+        return null;
+      }
+      const sentimento = task.sentimentoInicio;
+      const tempoTotal = task.tempoExecucao ?? 15;
+      const base = calcularDuracaoBase(sentimento, tempoTotal);
+      const ciclosOrigem = Array.isArray(task.pomodoroCycleDurations)
+        ? task.pomodoroCycleDurations
+        : null;
+      const cycleDurations =
+        ciclosOrigem && ciclosOrigem.length > 0
+          ? ciclosOrigem
+          : gerarCiclos(tempoTotal, base);
+      const totalCycles = cycleDurations.length;
+      if (!totalCycles) {
+        return null;
+      }
+      const rawStage = task.pomodoroStage ?? "focus";
+      const stage: PomodoroStage =
+        rawStage === "break" || rawStage === "finished" ? rawStage : "focus";
+      const currentCycleRaw = task.pomodoroCurrentCycle ?? 0;
+      const currentCycle = Math.min(
+        Math.max(0, currentCycleRaw),
+        cycleDurations.length - 1
+      );
+      const breakDuration = task.pomodoroBreakDuration
+        ? Math.max(1, task.pomodoroBreakDuration)
+        : BREAK_DURATION_MINUTES;
+      const awaitingAction = Boolean(task.pomodoroAwaitingAction);
+      const paused = awaitingAction ? true : Boolean(task.pomodoroPaused);
+      const storedRemaining =
+        typeof task.pomodoroRemainingMs === "number"
+          ? Math.max(0, task.pomodoroRemainingMs)
+          : null;
+      const defaultRemaining =
+        stage === "break"
+          ? breakDuration * 60 * 1000
+          : cycleDurations[currentCycle] * 60 * 1000;
+      let remainingMs = storedRemaining ?? defaultRemaining;
+      let targetTimestamp: number | null = null;
+      if (!paused && !awaitingAction) {
+        const targetIso = task.pomodoroTargetTimestamp;
+        if (targetIso) {
+          const parsed = new Date(targetIso);
+          if (!Number.isNaN(parsed.getTime())) {
+            targetTimestamp = parsed.getTime();
+            remainingMs = Math.max(0, targetTimestamp - Date.now());
+          }
+        }
+      }
+
+      if ((paused || awaitingAction) && remainingMs <= 0) {
+        remainingMs = defaultRemaining;
+      }
+
+      return {
+        task,
+        sentimentoInicio: sentimento,
+        cycleDurations,
+        currentCycle,
+        stage,
+        remainingMs,
+        paused,
+        breakDuration,
+        awaitingAction,
+        targetTimestamp,
+      };
+    },
+    []
+  );
+
+  useEffect(() => {
+    const awaiting = Boolean(timerState?.awaitingAction);
+    if (!awaitingActionRef.current && awaiting) {
+      triggerStageAlert();
+      setTimerExpanded(true);
+    }
+    awaitingActionRef.current = awaiting;
+    if (!timerState) {
+      awaitingActionRef.current = false;
+    }
+  }, [timerState, triggerStageAlert]);
+
+  useEffect(() => {
+    if (!timerState) {
+      setTimerExpanded(false);
+    }
+  }, [timerState]);
+
+  useEffect(() => {
+    const pending = tasks.find(
+      (task) => task.pomodoroStage === "finished" && !task.concluida
+    );
+    if (!pending) {
+      return;
+    }
+    const identifier = pending.id ?? -1;
+    if (finalizeHandledRef.current === identifier) {
+      return;
+    }
+    const hydrated = buildTimerStateFromTask(pending);
+    if (!hydrated) {
+      return;
+    }
+    finalizeHandledRef.current = identifier;
+    abrirFinalizacao(hydrated, true);
+  }, [tasks, buildTimerStateFromTask, abrirFinalizacao]);
+
+  useEffect(() => {
+    const active = tasks.find((task) => {
+      if (typeof task.sentimentoInicio !== "number") {
+        return false;
+      }
+      if (task.pomodoroStage === "finished") {
+        return false;
+      }
+      return (
+        task.pomodoroStage === "focus" ||
+        task.pomodoroStage === "break" ||
+        Boolean(task.pomodoroAwaitingAction) ||
+        typeof task.pomodoroRemainingMs === "number" ||
+        Boolean(task.pomodoroTargetTimestamp)
+      );
+    });
+
+    if (!active) {
+      return;
+    }
+
+    const hydrated = buildTimerStateFromTask(active);
+    if (!hydrated) {
+      return;
+    }
+
+    const existingId = timerState?.task.id ?? null;
+    if (existingId === active.id && timerState) {
+      const diffStage = hydrated.stage !== timerState.stage;
+      const diffCycle = hydrated.currentCycle !== timerState.currentCycle;
+      const diffAwaiting = hydrated.awaitingAction !== timerState.awaitingAction;
+      const diffPaused = hydrated.paused !== timerState.paused;
+      const diffRemaining =
+        Math.abs(hydrated.remainingMs - timerState.remainingMs) > 1500;
+      if (!diffStage && !diffCycle && !diffAwaiting && !diffPaused && !diffRemaining) {
+        return;
+      }
+    }
+
+    const task = mapStateToTask(hydrated);
+    setTimerState({ ...hydrated, task });
+  }, [
+    tasks,
+    timerState,
+    buildTimerStateFromTask,
+    mapStateToTask,
+  ]);
 
   useEffect(() => {
     const lastSyncMap = new Map<string, string | null>();
@@ -419,16 +650,26 @@ export default function TasksScreen() {
 
       await atualizarEvento(atualizado);
 
-      setTimerState({
+      const initialMs = ciclos[0] * 60 * 1000;
+      const targetTimestamp = Date.now() + initialMs;
+      const initialState: PomodoroState = {
         task: atualizado,
         sentimentoInicio,
         cycleDurations: ciclos,
         currentCycle: 0,
         stage: "focus",
-        remainingMs: ciclos[0] * 60 * 1000,
+        remainingMs: initialMs,
         paused: false,
         breakDuration: BREAK_DURATION_MINUTES,
-      });
+        awaitingAction: false,
+        targetTimestamp,
+      };
+      const enrichedTask = mapStateToTask(initialState);
+      const enrichedState: PomodoroState = { ...initialState, task: enrichedTask };
+
+      setTimerState(enrichedState);
+      persistPomodoroSnapshot(enrichedState);
+      finalizeHandledRef.current = null;
 
       setFinalizeContext(null);
       setSentimentoFinal(null);
@@ -437,44 +678,87 @@ export default function TasksScreen() {
 
       await carregarTarefas();
     },
-    [carregarTarefas]
+    [carregarTarefas, mapStateToTask, persistPomodoroSnapshot]
   );
 
   useEffect(() => {
-    if (!timerState || timerState.paused || timerState.stage === "finished") {
+    if (
+      !timerState ||
+      timerState.paused ||
+      timerState.awaitingAction ||
+      timerState.stage === "finished"
+    ) {
       return;
     }
 
     const interval = setInterval(() => {
       setTimerState((current) => {
-        if (!current || current.paused || current.stage === "finished") {
+        if (
+          !current ||
+          current.paused ||
+          current.awaitingAction ||
+          current.stage === "finished"
+        ) {
           return current;
         }
 
-        const restante = current.remainingMs - 1000;
-        if (restante > 0) {
-          return { ...current, remainingMs: restante };
+        const now = Date.now();
+        const baseRemaining = current.targetTimestamp
+          ? current.targetTimestamp - now
+          : current.remainingMs - 1000;
+        const remaining = Math.max(0, baseRemaining);
+
+        if (remaining > 0) {
+          return { ...current, remainingMs: remaining };
         }
 
         if (current.stage === "focus") {
           if (current.currentCycle >= current.cycleDurations.length - 1) {
-            return { ...current, stage: "finished", remainingMs: 0 };
+            const finishedState: PomodoroState = {
+              ...current,
+              stage: "finished",
+              remainingMs: 0,
+              paused: true,
+              awaitingAction: true,
+              targetTimestamp: null,
+            };
+            const task = mapStateToTask(finishedState);
+            const nextState: PomodoroState = { ...finishedState, task };
+            persistPomodoroSnapshot(nextState);
+            return nextState;
           }
-          return {
+
+          const breakMs = current.breakDuration * 60 * 1000;
+          const breakState: PomodoroState = {
             ...current,
             stage: "break",
-            remainingMs: current.breakDuration * 60 * 1000,
+            remainingMs: breakMs,
+            paused: true,
+            awaitingAction: true,
+            targetTimestamp: null,
           };
+          const task = mapStateToTask(breakState);
+          const nextState: PomodoroState = { ...breakState, task };
+          persistPomodoroSnapshot(nextState);
+          return nextState;
         }
 
         if (current.stage === "break") {
           const proximo = current.currentCycle + 1;
-          return {
+          const focoMs = current.cycleDurations[proximo] * 60 * 1000;
+          const focusState: PomodoroState = {
             ...current,
             stage: "focus",
             currentCycle: proximo,
-            remainingMs: current.cycleDurations[proximo] * 60 * 1000,
+            remainingMs: focoMs,
+            paused: true,
+            awaitingAction: true,
+            targetTimestamp: null,
           };
+          const task = mapStateToTask(focusState);
+          const nextState: PomodoroState = { ...focusState, task };
+          persistPomodoroSnapshot(nextState);
+          return nextState;
         }
 
         return current;
@@ -484,13 +768,19 @@ export default function TasksScreen() {
     return () => {
       clearInterval(interval);
     };
-  }, [timerState]);
+  }, [timerState, mapStateToTask, persistPomodoroSnapshot]);
 
   useEffect(() => {
-    if (timerState && timerState.stage === "finished") {
-      abrirFinalizacao(timerState, true);
-      setTimerState(null);
+    if (!timerState || timerState.stage !== "finished") {
+      return;
     }
+    const identifier = timerState.task.id ?? -1;
+    if (finalizeHandledRef.current === identifier) {
+      return;
+    }
+    finalizeHandledRef.current = identifier;
+    abrirFinalizacao(timerState, true);
+    setTimerState(null);
   }, [timerState, abrirFinalizacao]);
 
   const togglePause = useCallback(() => {
@@ -498,28 +788,80 @@ export default function TasksScreen() {
       if (!current || current.stage === "finished") {
         return current;
       }
-      return { ...current, paused: !current.paused };
+
+      let updated: PomodoroState;
+      if (current.awaitingAction || current.paused) {
+        const duration = Math.max(0, Math.round(current.remainingMs));
+        const target = Date.now() + duration;
+        updated = {
+          ...current,
+          paused: false,
+          awaitingAction: false,
+          targetTimestamp: target,
+          remainingMs: duration,
+        };
+      } else {
+        const remaining = current.targetTimestamp
+          ? Math.max(0, current.targetTimestamp - Date.now())
+          : Math.max(0, Math.round(current.remainingMs));
+        updated = {
+          ...current,
+          paused: true,
+          awaitingAction: false,
+          targetTimestamp: null,
+          remainingMs: remaining,
+        };
+      }
+
+      const task = mapStateToTask(updated);
+      const nextState: PomodoroState = { ...updated, task };
+      persistPomodoroSnapshot(nextState);
+      return nextState;
     });
-  }, []);
+  }, [mapStateToTask, persistPomodoroSnapshot]);
 
   const handleJumpToTestSeconds = useCallback(() => {
     setTimerState((current) => {
       if (!current || current.stage === "finished") {
         return current;
       }
-      return { ...current, remainingMs: 3000 };
+      const isRunning = !current.paused && !current.awaitingAction;
+      const updated: PomodoroState = {
+        ...current,
+        remainingMs: 3000,
+        targetTimestamp: isRunning ? Date.now() + 3000 : null,
+      };
+      const task = mapStateToTask(updated);
+      const nextState: PomodoroState = { ...updated, task };
+      persistPomodoroSnapshot(nextState);
+      return nextState;
     });
-  }, []);
+  }, [mapStateToTask, persistPomodoroSnapshot]);
 
   const handleFinalizeRequest = useCallback(() => {
+    let snapshot: PomodoroState | null = null;
     setTimerState((current) => {
       if (!current) {
         return current;
       }
-      abrirFinalizacao(current, false);
-      return { ...current, paused: true };
+      const finishedState: PomodoroState = {
+        ...current,
+        stage: "finished",
+        remainingMs: 0,
+        paused: true,
+        awaitingAction: true,
+        targetTimestamp: null,
+      };
+      const task = mapStateToTask(finishedState);
+      snapshot = { ...finishedState, task };
+      persistPomodoroSnapshot(snapshot);
+      finalizeHandledRef.current = current.task.id ?? -1;
+      return null;
     });
-  }, [abrirFinalizacao]);
+    if (snapshot) {
+      abrirFinalizacao(snapshot, false);
+    }
+  }, [abrirFinalizacao, mapStateToTask, persistPomodoroSnapshot]);
 
   const handleFinalizeCancel = useCallback(() => {
     setFinalizeModalVisible(false);
@@ -621,6 +963,18 @@ export default function TasksScreen() {
     };
 
     await atualizarEvento(eventoAtualizado);
+    if (eventoAtualizado.id) {
+      await atualizarPomodoroEstado(eventoAtualizado.id, {
+        stage: null,
+        currentCycle: null,
+        remainingMs: null,
+        paused: null,
+        awaitingAction: null,
+        targetTimestamp: null,
+        cycleDurations: null,
+        breakDuration: null,
+      });
+    }
 
     if (!atividadeConcluida && followUpIso) {
       const novaAtividade: Task = {
@@ -649,6 +1003,7 @@ export default function TasksScreen() {
     setSentimentoFinal(null);
     setAtividadeConcluida(null);
     setFollowUpDate(null);
+    finalizeHandledRef.current = null;
 
     await carregarTarefas();
 
@@ -792,6 +1147,47 @@ export default function TasksScreen() {
       console.warn("[tasks] failed to trigger sync after delete", error);
     }
   };
+
+  const timerStageLabel = timerState
+    ? timerState.stage === "break"
+      ? "Pausa curta"
+      : "Foco na atividade"
+    : "";
+
+  const timerActionLabel = timerState
+    ? timerState.awaitingAction
+      ? timerState.stage === "break"
+        ? "Iniciar pausa"
+        : `Iniciar ciclo ${timerState.currentCycle + 1}`
+      : timerState.paused
+      ? "Retomar"
+      : "Pausar"
+    : "Pausar";
+
+  const timerStatusMessage = timerState
+    ? timerState.awaitingAction
+      ? timerState.stage === "break"
+        ? "Inicie sua pausa rápida para se hidratar e se movimentar."
+        : "Toque em iniciar para começar o próximo ciclo de foco."
+      : timerState.paused
+      ? "Temporizador pausado"
+      : null
+    : null;
+
+  const breakReminder =
+    timerState?.stage === "break"
+      ? "Momento de pausa: tome água, movimente-se e respire fundo."
+      : null;
+
+  const timerBannerStatus = timerState
+    ? timerState.awaitingAction
+      ? timerState.stage === "break"
+        ? "Pronto para pausa"
+        : "Pronto para novo ciclo"
+      : timerState.paused
+      ? "Pausado"
+      : "Em andamento"
+    : "";
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -865,46 +1261,80 @@ export default function TasksScreen() {
       </ScrollView>
       {timerState && (
         <Modal visible transparent animationType="fade">
-          <View style={styles.timerOverlay}>
-            <View style={styles.timerModal}>
-              <Text style={styles.timerTitulo} numberOfLines={2}>
-                {timerState.task.titulo}
-              </Text>
-              <Text style={styles.timerEtapa}>
-                {timerState.stage === "break" ? "Pausa curta" : "Foco na atividade"}
-              </Text>
-              <Text style={styles.timerContagem}>{formatCountdown(timerState.remainingMs)}</Text>
-              <Text style={styles.timerCiclo}>
-                Ciclo {timerState.currentCycle + 1} de {timerState.cycleDurations.length}
-              </Text>
-              {timerState.paused && timerState.stage !== "finished" && (
-                <Text style={styles.timerStatus}>Temporizador pausado</Text>
-              )}
-              <View style={styles.timerBotoes}>
-                <TouchableOpacity
-                  style={styles.timerBotaoSecundario}
-                  onPress={togglePause}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.timerBotaoSecundarioTexto}>
-                    {timerState.paused ? "Retomar" : "Pausar"}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.timerBotaoPrincipal}
-                  onPress={handleFinalizeRequest}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.timerBotaoPrincipalTexto}>Finalizar</Text>
-                </TouchableOpacity>
-              </View>
+          <View style={styles.timerOverlay} pointerEvents="box-none">
+            {timerExpanded && (
               <TouchableOpacity
-                style={styles.timerBotaoTeste}
-                onPress={handleJumpToTestSeconds}
-                activeOpacity={0.8}
+                style={styles.timerBackdrop}
+                activeOpacity={1}
+                onPress={() => setTimerExpanded(false)}
+              />
+            )}
+            <View style={styles.timerContainer} pointerEvents="box-none">
+              <TouchableOpacity
+                style={styles.timerBanner}
+                activeOpacity={0.9}
+                onPress={() => setTimerExpanded((prev) => !prev)}
               >
-                <Text style={styles.timerBotaoTesteTexto}>Ir para 3s (teste)</Text>
+                <View style={styles.timerBannerTexts}>
+                  <Text style={styles.timerBannerTitle} numberOfLines={1}>
+                    {timerState.task.titulo}
+                  </Text>
+                  <Text style={styles.timerBannerSubtitle} numberOfLines={1}>
+                    {timerStageLabel} • {formatCountdown(timerState.remainingMs)}
+                  </Text>
+                  <Text style={styles.timerBannerMeta} numberOfLines={1}>
+                    Ciclo {timerState.currentCycle + 1} de {timerState.cycleDurations.length} · {timerBannerStatus}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={timerExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  style={styles.timerBannerIcon}
+                />
               </TouchableOpacity>
+              {timerExpanded && (
+                <View style={styles.timerModal}>
+                  <Text style={styles.timerTitulo} numberOfLines={2}>
+                    {timerState.task.titulo}
+                  </Text>
+                  <Text style={styles.timerEtapa}>{timerStageLabel}</Text>
+                  <Text style={styles.timerContagem}>
+                    {formatCountdown(timerState.remainingMs)}
+                  </Text>
+                  <Text style={styles.timerCiclo}>
+                    Ciclo {timerState.currentCycle + 1} de {timerState.cycleDurations.length}
+                  </Text>
+                  {timerStatusMessage ? (
+                    <Text style={styles.timerStatus}>{timerStatusMessage}</Text>
+                  ) : null}
+                  {breakReminder ? (
+                    <Text style={styles.timerReminder}>{breakReminder}</Text>
+                  ) : null}
+                  <View style={styles.timerBotoes}>
+                    <TouchableOpacity
+                      style={styles.timerBotaoSecundario}
+                      onPress={togglePause}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.timerBotaoSecundarioTexto}>{timerActionLabel}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.timerBotaoPrincipal}
+                      onPress={handleFinalizeRequest}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.timerBotaoPrincipalTexto}>Finalizar</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.timerBotaoTeste}
+                    onPress={handleJumpToTestSeconds}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.timerBotaoTesteTexto}>Ir para 3s (teste)</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
         </Modal>
@@ -1247,22 +1677,74 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
+    paddingTop: TIMER_TOP_PADDING,
+    paddingHorizontal: 16,
     alignItems: "center",
-    padding: 20,
+    justifyContent: "flex-start",
+  },
+  timerBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+  },
+  timerContainer: {
+    width: "100%",
+    alignItems: "center",
+    gap: 16,
+  },
+  timerBanner: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    backgroundColor: "rgba(21, 94, 117, 0.95)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 7,
+  },
+  timerBannerTexts: {
+    flex: 1,
+    marginRight: 12,
+  },
+  timerBannerTitle: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  timerBannerSubtitle: {
+    marginTop: 4,
+    color: "#e0f7f5",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  timerBannerMeta: {
+    marginTop: 4,
+    color: "#c6ece7",
+    fontSize: 12,
+  },
+  timerBannerIcon: {
+    color: "#ffffff",
   },
   timerModal: {
     width: "100%",
     maxWidth: 420,
-    backgroundColor: "#fff",
+    backgroundColor: "#ffffff",
     borderRadius: 16,
     paddingVertical: 28,
     paddingHorizontal: 24,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.18,
     shadowRadius: 12,
     elevation: 8,
   },
@@ -1290,9 +1772,16 @@ const styles = StyleSheet.create({
     color: "#555",
   },
   timerStatus: {
-    marginTop: 6,
-    fontSize: 12,
+    marginTop: 12,
+    fontSize: 13,
     color: "#e76f51",
+    textAlign: "center",
+  },
+  timerReminder: {
+    marginTop: 10,
+    fontSize: 13,
+    color: "#264653",
+    textAlign: "center",
   },
   timerBotoes: {
     flexDirection: "row",
