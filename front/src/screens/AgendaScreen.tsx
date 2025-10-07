@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { Evento, salvarEvento, listarEventos, atualizarEvento } from "../database";
 import TaskModal from "../components/TaskModal";
+import { usePomodoro } from "../pomodoro/PomodoroProvider";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
 import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
 import { triggerEventSync } from "../services/eventSync";
@@ -62,6 +63,7 @@ const mesclarIntervalos = (intervalos: OverlapInterval[]) => {
 export default function AgendaScreen() {
   const [dataAtual, setDataAtual] = useState(new Date());
   const [eventos, setEventos] = useState<EventoAgenda[]>([]);
+  const { startTask } = usePomodoro();
 
   const carregarEventos = useCallback(async () => {
     const lista = await listarEventos();
@@ -686,6 +688,10 @@ export default function AgendaScreen() {
           }
         }}
         initialData={tarefaSelecionada}
+        onStart={async (task, options) => {
+          await startTask(task as EventoAgenda, options);
+          await carregarEventos();
+        }}
       />
     </View>
   );
