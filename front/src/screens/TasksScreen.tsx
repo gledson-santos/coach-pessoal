@@ -502,6 +502,15 @@ export default function TasksScreen() {
     });
   }, []);
 
+  const handleJumpToTestSeconds = useCallback(() => {
+    setTimerState((current) => {
+      if (!current || current.stage === "finished") {
+        return current;
+      }
+      return { ...current, remainingMs: 3000 };
+    });
+  }, []);
+
   const handleFinalizeRequest = useCallback(() => {
     setTimerState((current) => {
       if (!current) {
@@ -889,6 +898,13 @@ export default function TasksScreen() {
                   <Text style={styles.timerBotaoPrincipalTexto}>Finalizar</Text>
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={styles.timerBotaoTeste}
+                onPress={handleJumpToTestSeconds}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.timerBotaoTesteTexto}>Ir para 3s (teste)</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -1309,6 +1325,21 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 14,
+  },
+  timerBotaoTeste: {
+    marginTop: 16,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#264653",
+  },
+  timerBotaoTesteTexto: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   finalizeOverlay: {
     flex: 1,
