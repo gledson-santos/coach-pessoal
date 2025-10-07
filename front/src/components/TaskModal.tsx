@@ -28,6 +28,7 @@ interface TaskModalProps {
   onSave: (task: Task) => Promise<void> | void;
   onDelete?: (id: number) => Promise<void> | void;
   initialData?: Task | null;
+  onStart?: (task: Task, options: { sentimentoInicio: number }) => void;
 }
 
 const formatarDuracao = (minutos: number) => {
@@ -83,6 +84,7 @@ export default function TaskModal({
   onSave,
   onDelete,
   initialData,
+  onStart,
 }: TaskModalProps) {
   const [titulo, setTitulo] = useState("");
   const [observacao, setObservacao] = useState("");
@@ -94,6 +96,7 @@ export default function TaskModal({
   const [mostrarDuracoes, setMostrarDuracoes] = useState(false);
   const [mostrarModalInicio, setMostrarModalInicio] = useState(false);
   const [textoConfirmacao, setTextoConfirmacao] = useState("");
+  const [sentimentoInicio, setSentimentoInicio] = useState<number | null>(null);
   const [dadosOriginais, setDadosOriginais] = useState({
     titulo: "",
     observacao: "",
@@ -112,6 +115,11 @@ export default function TaskModal({
       setTipo(initialData.tipo || "");
       setDificuldade(initialData.dificuldade || "");
       setTempoExecucao(initialData.tempoExecucao ?? 15);
+      setSentimentoInicio(
+        typeof initialData.sentimentoInicio === "number"
+          ? initialData.sentimentoInicio
+          : null
+      );
       setDadosOriginais({
         titulo: initialData.titulo || "",
         observacao: initialData.observacao || "",
@@ -127,6 +135,7 @@ export default function TaskModal({
       setTipo("");
       setDificuldade("");
       setTempoExecucao(15);
+      setSentimentoInicio(null);
       setDadosOriginais({
         titulo: "",
         observacao: "",
@@ -140,6 +149,11 @@ export default function TaskModal({
     setMostrarDuracoes(false);
     setMostrarModalInicio(false);
     setTextoConfirmacao("");
+    setSentimentoInicio(
+      initialData && typeof initialData.sentimentoInicio === "number"
+        ? initialData.sentimentoInicio
+        : null
+    );
   }, [initialData, visible]);
 
   const dataSelecionada = data
@@ -336,6 +350,8 @@ export default function TaskModal({
     return texto.includes("comeco") && texto.includes("distracoes");
   }, [textoConfirmacao]);
 
+  const podeConfirmarInicio = textoConfirmacaoValido && sentimentoInicio !== null;
+
   const iniciar = () => {
     setTextoConfirmacao("");
     setMostrarModalInicio(true);
@@ -348,8 +364,31 @@ export default function TaskModal({
       );
       return;
     }
+    if (sentimentoInicio === null) {
+      alert("Informe como você está se sentindo para começarmos.");
+      return;
+    }
+    if (!initialData?.id) {
+      alert("Salve a tarefa antes de iniciá-la.");
+      return;
+    }
+
+    const tarefaAtualizada: Task = {
+      ...initialData,
+      titulo,
+      observacao,
+      data,
+      tipo,
+      dificuldade,
+      tempoExecucao,
+    };
+
+    if (onStart) {
+      onStart(tarefaAtualizada, { sentimentoInicio });
+    }
     setMostrarModalInicio(false);
     setTextoConfirmacao("");
+    setSentimentoInicio(sentimentoInicio);
     onClose();
   };
 
@@ -576,6 +615,33 @@ export default function TaskModal({
             <Text style={styles.textoExemplo}>
               "{fraseConfirmacao}"
             </Text>
+            <View style={styles.sentimentoBloco}>
+              <Text style={styles.sentimentoTitulo}>Como você está se sentindo agora?</Text>
+              <View style={styles.sentimentoOpcoes}>
+                {[1, 2, 3, 4, 5].map((nivel) => {
+                  const ativo = sentimentoInicio === nivel;
+                  return (
+                    <TouchableOpacity
+                      key={nivel}
+                      style={[
+                        styles.sentimentoOpcao,
+                        ativo && styles.sentimentoOpcaoAtiva,
+                      ]}
+                      onPress={() => setSentimentoInicio(nivel)}
+                    >
+                      <Text
+                        style={[
+                          styles.sentimentoOpcaoTexto,
+                          ativo && styles.sentimentoOpcaoTextoAtivo,
+                        ]}
+                      >
+                        {nivel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
             <TextInput
               placeholder="Digite o compromisso para iniciar"
               style={[styles.input, styles.textArea, styles.inputConfirmacao]}
@@ -589,17 +655,22 @@ export default function TaskModal({
                 onPress={() => {
                   setMostrarModalInicio(false);
                   setTextoConfirmacao("");
+                  setSentimentoInicio(
+                    initialData && typeof initialData.sentimentoInicio === "number"
+                      ? initialData.sentimentoInicio
+                      : null
+                  );
                 }}
               >
                 <Text style={styles.cancelarInicioTexto}>Voltar</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={
-                  textoConfirmacaoValido
+                  podeConfirmarInicio
                     ? styles.confirmarInicio
                     : [styles.confirmarInicio, styles.confirmarInicioDesabilitado]
                 }
-                disabled={!textoConfirmacaoValido}
+                disabled={!podeConfirmarInicio}
                 onPress={confirmarInicio}
               >
                 <Text style={styles.confirmarInicioTexto}>Começar</Text>
@@ -820,6 +891,42 @@ const styles = StyleSheet.create({
   },
   cancelarInicioTexto: {
     color: "#333",
+  },
+  sentimentoBloco: {
+    width: "100%",
+    marginBottom: 12,
+  },
+  sentimentoTitulo: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
+  sentimentoOpcoes: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  sentimentoOpcao: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  sentimentoOpcaoAtiva: {
+    backgroundColor: "#2a9d8f",
+    borderColor: "#1d6e64",
+  },
+  sentimentoOpcaoTexto: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#264653",
+  },
+  sentimentoOpcaoTextoAtivo: {
+    color: "#fff",
   },
   confirmarInicio: {
     paddingVertical: 10,

@@ -370,7 +370,10 @@ export default function AgendaScreen() {
               ))}
 
               {eventosDiaAtual.map((ev) => {
-                const corBase = ev.conflict
+                const concluida = Boolean(ev.concluida);
+                const corBase = concluida
+                  ? "#b0b0b0"
+                  : ev.conflict
                   ? "#e63946"
                   : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                 const altura = Math.max(
@@ -385,6 +388,7 @@ export default function AgendaScreen() {
                   top: ev.startMin * MINUTE_HEIGHT,
                   height: altura,
                   backgroundColor: corBase,
+                  opacity: concluida ? 0.65 : 1,
                 };
 
                 if (larguraTimeline > 0) {
@@ -540,7 +544,10 @@ export default function AgendaScreen() {
                       ))}
 
                       {eventosDia.map((ev) => {
-                        const corBase = ev.conflict
+                        const concluida = Boolean(ev.concluida);
+                        const corBase = concluida
+                          ? "#b0b0b0"
+                          : ev.conflict
                           ? "#e63946"
                           : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                         const altura = Math.max(
@@ -564,6 +571,7 @@ export default function AgendaScreen() {
                           backgroundColor: corBase,
                           width: larguraEvento,
                           left,
+                          opacity: concluida ? 0.65 : 1,
                         };
 
                         if (isEventoCurto) {

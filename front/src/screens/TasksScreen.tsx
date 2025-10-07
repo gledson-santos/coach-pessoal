@@ -1,12 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  Alert,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 
 import { Ionicons } from "@expo/vector-icons";
 import TaskModal from "../components/TaskModal";
@@ -27,6 +34,86 @@ import { filterVisibleEvents } from "../utils/eventFilters";
 type Task = Evento;
 type DisplayTask = Task & {
   aggregatedCount?: number;
+};
+
+type PomodoroStage = "focus" | "break" | "finished";
+
+type PomodoroState = {
+  task: Task;
+  sentimentoInicio: number;
+  cycleDurations: number[];
+  currentCycle: number;
+  stage: PomodoroStage;
+  remainingMs: number;
+  paused: boolean;
+  breakDuration: number;
+};
+
+type FinalizeContext = {
+  task: Task;
+  sentimentoInicio: number;
+  autoCompleted: boolean;
+};
+
+const BREAK_DURATION_MINUTES = 5;
+
+const formatCountdown = (ms: number) => {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+};
+
+const calcularDuracaoBase = (sentimento: number, tempoTotal: number) => {
+  const base = sentimento <= 2 ? 15 : 15 + (sentimento - 2) * 5;
+  if (tempoTotal <= 0) {
+    return base;
+  }
+  return Math.min(base, tempoTotal);
+};
+
+const gerarCiclos = (tempoTotal: number, base: number) => {
+  const ciclos: number[] = [];
+  const total = tempoTotal > 0 ? tempoTotal : base;
+  const duracaoBase = Math.max(1, Math.round(base));
+  let restante = Math.max(1, Math.round(total));
+
+  while (restante > 0) {
+    const atual = Math.min(duracaoBase, restante);
+    ciclos.push(atual);
+    restante -= atual;
+  }
+
+  return ciclos.length > 0 ? ciclos : [duracaoBase];
+};
+
+const formatarDataCurta = (valor?: string | null) => {
+  if (!valor) {
+    return "Selecione quando retomar";
+  }
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) {
+    return "Selecione quando retomar";
+  }
+  return data.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatarDataParaInput = (valor?: string | null) => {
+  if (!valor) return "";
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) {
+    return "";
+  }
+  const semOffset = new Date(data.getTime() - data.getTimezoneOffset() * 60000);
+  return semOffset.toISOString().slice(0, 16);
 };
 
 const FILTERS = [
@@ -247,10 +334,19 @@ export default function TasksScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("hoje");
+  const [timerState, setTimerState] = useState<PomodoroState | null>(null);
+  const [finalizeModalVisible, setFinalizeModalVisible] = useState(false);
+  const [finalizeContext, setFinalizeContext] = useState<FinalizeContext | null>(null);
+  const [sentimentoFinal, setSentimentoFinal] = useState<number | null>(null);
+  const [atividadeConcluida, setAtividadeConcluida] = useState<boolean | null>(null);
+  const [followUpDate, setFollowUpDate] = useState<string | null>(null);
+  const [mostrarFollowUpPicker, setMostrarFollowUpPicker] = useState(false);
+  const followUpInputRef = useRef<any>(null);
   const carregarTarefas = useCallback(async () => {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
-    setTasks(visiveis as Task[]);
+    const ativos = visiveis.filter((evento) => !evento.concluida);
+    setTasks(ativos as Task[]);
   }, []);
 
   useEffect(() => {
@@ -290,6 +386,275 @@ export default function TasksScreen() {
       unsubscribe();
     };
   }, [carregarTarefas]);
+
+  const abrirFinalizacao = useCallback((state: PomodoroState, autoCompleted: boolean) => {
+    setFinalizeContext({
+      task: state.task,
+      sentimentoInicio: state.sentimentoInicio,
+      autoCompleted,
+    });
+    setSentimentoFinal(null);
+    setAtividadeConcluida(null);
+    setFollowUpDate(null);
+    setMostrarFollowUpPicker(false);
+    setFinalizeModalVisible(true);
+  }, []);
+
+  const handleStartTask = useCallback(
+    async (task: Task, { sentimentoInicio }: { sentimentoInicio: number }) => {
+      if (!task.id) {
+        Alert.alert("Tarefa não encontrada", "Salve a atividade antes de iniciar.");
+        return;
+      }
+
+      const tempoTotal = task.tempoExecucao ?? 15;
+      const base = calcularDuracaoBase(sentimentoInicio, tempoTotal);
+      const ciclos = gerarCiclos(tempoTotal, base);
+      const atualizado: Task = {
+        ...task,
+        sentimentoInicio,
+        sentimentoFim: null,
+        concluida: false,
+      };
+
+      await atualizarEvento(atualizado);
+
+      setTimerState({
+        task: atualizado,
+        sentimentoInicio,
+        cycleDurations: ciclos,
+        currentCycle: 0,
+        stage: "focus",
+        remainingMs: ciclos[0] * 60 * 1000,
+        paused: false,
+        breakDuration: BREAK_DURATION_MINUTES,
+      });
+
+      setFinalizeContext(null);
+      setSentimentoFinal(null);
+      setAtividadeConcluida(null);
+      setFollowUpDate(null);
+
+      await carregarTarefas();
+    },
+    [carregarTarefas]
+  );
+
+  useEffect(() => {
+    if (!timerState || timerState.paused || timerState.stage === "finished") {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTimerState((current) => {
+        if (!current || current.paused || current.stage === "finished") {
+          return current;
+        }
+
+        const restante = current.remainingMs - 1000;
+        if (restante > 0) {
+          return { ...current, remainingMs: restante };
+        }
+
+        if (current.stage === "focus") {
+          if (current.currentCycle >= current.cycleDurations.length - 1) {
+            return { ...current, stage: "finished", remainingMs: 0 };
+          }
+          return {
+            ...current,
+            stage: "break",
+            remainingMs: current.breakDuration * 60 * 1000,
+          };
+        }
+
+        if (current.stage === "break") {
+          const proximo = current.currentCycle + 1;
+          return {
+            ...current,
+            stage: "focus",
+            currentCycle: proximo,
+            remainingMs: current.cycleDurations[proximo] * 60 * 1000,
+          };
+        }
+
+        return current;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [timerState]);
+
+  useEffect(() => {
+    if (timerState && timerState.stage === "finished") {
+      abrirFinalizacao(timerState, true);
+      setTimerState(null);
+    }
+  }, [timerState, abrirFinalizacao]);
+
+  const togglePause = useCallback(() => {
+    setTimerState((current) => {
+      if (!current || current.stage === "finished") {
+        return current;
+      }
+      return { ...current, paused: !current.paused };
+    });
+  }, []);
+
+  const handleFinalizeRequest = useCallback(() => {
+    setTimerState((current) => {
+      if (!current) {
+        return current;
+      }
+      abrirFinalizacao(current, false);
+      return { ...current, paused: true };
+    });
+  }, [abrirFinalizacao]);
+
+  const handleFinalizeCancel = useCallback(() => {
+    setFinalizeModalVisible(false);
+    setMostrarFollowUpPicker(false);
+    setSentimentoFinal(null);
+    setAtividadeConcluida(null);
+    setFollowUpDate(null);
+    if (finalizeContext && !finalizeContext.autoCompleted) {
+      setTimerState((current) => {
+        if (!current || current.stage === "finished") {
+          return current;
+        }
+        return { ...current, paused: false };
+      });
+    }
+    setFinalizeContext(null);
+  }, [finalizeContext]);
+
+  const abrirSeletorFollowUp = useCallback(() => {
+    if (Platform.OS === "web") {
+      const elemento = followUpInputRef.current;
+      if (elemento) {
+        if (typeof elemento.showPicker === "function") {
+          elemento.showPicker();
+        } else if (typeof elemento.click === "function") {
+          elemento.click();
+        }
+        if (typeof elemento.focus === "function") {
+          elemento.focus();
+        }
+      }
+      return;
+    }
+    setMostrarFollowUpPicker(true);
+  }, []);
+
+  const aoAlterarFollowUp = useCallback(
+    (event: DateTimePickerEvent, date?: Date) => {
+      if (Platform.OS !== "ios") {
+        setMostrarFollowUpPicker(false);
+      }
+      if (event.type === "dismissed") {
+        return;
+      }
+      if (date) {
+        setFollowUpDate(date.toISOString());
+      }
+    },
+    []
+  );
+
+  const aoAlterarFollowUpWeb = useCallback((valor: string) => {
+    if (!valor) {
+      setFollowUpDate(null);
+      return;
+    }
+    const selecionada = new Date(valor);
+    if (Number.isNaN(selecionada.getTime())) {
+      setFollowUpDate(null);
+      return;
+    }
+    setFollowUpDate(selecionada.toISOString());
+  }, []);
+
+  const handleFinalizeConfirm = useCallback(async () => {
+    if (!finalizeContext) {
+      return;
+    }
+
+    if (sentimentoFinal === null) {
+      Alert.alert("Sentimento", "Informe como você está se sentindo agora.");
+      return;
+    }
+
+    if (atividadeConcluida === null) {
+      Alert.alert("Status", "Informe se a atividade foi concluída.");
+      return;
+    }
+
+    let followUpIso = followUpDate;
+    if (!atividadeConcluida) {
+      if (!followUpIso) {
+        Alert.alert("Nova tentativa", "Defina quando retomará a atividade.");
+        return;
+      }
+      const parsed = new Date(followUpIso);
+      if (Number.isNaN(parsed.getTime())) {
+        Alert.alert("Nova tentativa", "Informe uma data válida para retomar.");
+        return;
+      }
+      followUpIso = parsed.toISOString();
+    }
+
+    const eventoAtualizado: Task = {
+      ...finalizeContext.task,
+      sentimentoInicio: finalizeContext.sentimentoInicio,
+      sentimentoFim: sentimentoFinal,
+      concluida: true,
+    };
+
+    await atualizarEvento(eventoAtualizado);
+
+    if (!atividadeConcluida && followUpIso) {
+      const novaAtividade: Task = {
+        titulo: finalizeContext.task.titulo,
+        observacao: finalizeContext.task.observacao,
+        data: followUpIso,
+        inicio: followUpIso,
+        tipo: finalizeContext.task.tipo,
+        dificuldade: finalizeContext.task.dificuldade,
+        tempoExecucao: finalizeContext.task.tempoExecucao,
+        cor: finalizeContext.task.cor,
+        provider: finalizeContext.task.provider,
+        accountId: finalizeContext.task.accountId,
+        status: finalizeContext.task.status ?? "ativo",
+        concluida: false,
+        sentimentoInicio: null,
+        sentimentoFim: null,
+      } as Task;
+      await salvarEvento(novaAtividade);
+    }
+
+    setTimerState(null);
+    setFinalizeModalVisible(false);
+    setFinalizeContext(null);
+    setMostrarFollowUpPicker(false);
+    setSentimentoFinal(null);
+    setAtividadeConcluida(null);
+    setFollowUpDate(null);
+
+    await carregarTarefas();
+
+    try {
+      await triggerEventSync({ force: true });
+    } catch (error) {
+      console.warn("[tasks] failed to trigger sync after finalize", error);
+    }
+  }, [
+    atividadeConcluida,
+    carregarTarefas,
+    finalizeContext,
+    followUpDate,
+    sentimentoFinal,
+  ]);
   const categorizedTasks = useMemo<Record<FilterKey, DisplayTask[]>>(() => {
     const msPorDia = 1000 * 60 * 60 * 24;
     const agora = new Date();
@@ -489,12 +854,171 @@ export default function TasksScreen() {
           </Text>
         )}
       </ScrollView>
+      {timerState && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.timerOverlay}>
+            <View style={styles.timerModal}>
+              <Text style={styles.timerTitulo} numberOfLines={2}>
+                {timerState.task.titulo}
+              </Text>
+              <Text style={styles.timerEtapa}>
+                {timerState.stage === "break" ? "Pausa curta" : "Foco na atividade"}
+              </Text>
+              <Text style={styles.timerContagem}>{formatCountdown(timerState.remainingMs)}</Text>
+              <Text style={styles.timerCiclo}>
+                Ciclo {timerState.currentCycle + 1} de {timerState.cycleDurations.length}
+              </Text>
+              {timerState.paused && timerState.stage !== "finished" && (
+                <Text style={styles.timerStatus}>Temporizador pausado</Text>
+              )}
+              <View style={styles.timerBotoes}>
+                <TouchableOpacity
+                  style={styles.timerBotaoSecundario}
+                  onPress={togglePause}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.timerBotaoSecundarioTexto}>
+                    {timerState.paused ? "Retomar" : "Pausar"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.timerBotaoPrincipal}
+                  onPress={handleFinalizeRequest}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.timerBotaoPrincipalTexto}>Finalizar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {finalizeModalVisible && finalizeContext && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.finalizeOverlay}>
+            <View style={styles.finalizeModal}>
+              <Text style={styles.finalizeTitulo}>Finalizar atividade</Text>
+              <Text style={styles.finalizeDescricao}>Como você está se sentindo agora?</Text>
+              <View style={styles.finalizeSentimentoOpcoes}>
+                {[1, 2, 3, 4, 5].map((nivel) => {
+                  const ativo = sentimentoFinal === nivel;
+                  return (
+                    <TouchableOpacity
+                      key={`sentimento-final-${nivel}`}
+                      style={[
+                        styles.finalizeSentimentoOpcao,
+                        ativo && styles.finalizeSentimentoOpcaoAtiva,
+                      ]}
+                      onPress={() => setSentimentoFinal(nivel)}
+                    >
+                      <Text
+                        style={[
+                          styles.finalizeSentimentoTexto,
+                          ativo && styles.finalizeSentimentoTextoAtivo,
+                        ]}
+                      >
+                        {nivel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.finalizePergunta}>A atividade foi concluída?</Text>
+              <View style={styles.finalizeConclusaoOpcoes}>
+                {[{ valor: true, label: "Sim" }, { valor: false, label: "Não" }].map(
+                  (opcao) => {
+                    const ativo = atividadeConcluida === opcao.valor;
+                    return (
+                      <TouchableOpacity
+                        key={`conclusao-${opcao.label}`}
+                        style={[
+                          styles.finalizeConclusaoOpcao,
+                          ativo && styles.finalizeConclusaoOpcaoAtiva,
+                        ]}
+                        onPress={() => setAtividadeConcluida(opcao.valor)}
+                      >
+                        <Text
+                          style={[
+                            styles.finalizeConclusaoTexto,
+                            ativo && styles.finalizeConclusaoTextoAtivo,
+                          ]}
+                        >
+                          {opcao.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                )}
+              </View>
+
+              {atividadeConcluida === false && (
+                <View style={styles.finalizeRetomarBloco}>
+                  <Text style={styles.finalizeDescricao}>Quando você retomará?</Text>
+                  <TouchableOpacity
+                    style={styles.finalizeFollowUp}
+                    onPress={abrirSeletorFollowUp}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.finalizeFollowUpTexto}>
+                      {formatarDataCurta(followUpDate)}
+                    </Text>
+                    {Platform.OS === "web" && (
+                      <input
+                        ref={followUpInputRef}
+                        type="datetime-local"
+                        value={formatarDataParaInput(followUpDate)}
+                        onChange={(event) => aoAlterarFollowUpWeb(event.target.value)}
+                        style={{
+                          position: "absolute",
+                          opacity: 0,
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: "100%",
+                          cursor: "pointer",
+                        }}
+                      />
+                    )}
+                  </TouchableOpacity>
+                  {Platform.OS !== "web" && mostrarFollowUpPicker && (
+                    <DateTimePicker
+                      value={followUpDate ? new Date(followUpDate) : new Date()}
+                      mode="datetime"
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      onChange={aoAlterarFollowUp}
+                    />
+                  )}
+                </View>
+              )}
+
+              <View style={styles.finalizeBotoes}>
+                <TouchableOpacity
+                  style={styles.finalizeBotaoSecundario}
+                  onPress={handleFinalizeCancel}
+                >
+                  <Text style={styles.finalizeBotaoSecundarioTexto}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.finalizeBotaoPrincipal}
+                  onPress={handleFinalizeConfirm}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.finalizeBotaoPrincipalTexto}>Confirmar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
       <TaskModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         onSave={handleSave}
         onDelete={(id) => handleDelete(id)}
         initialData={selectedTask}
+        onStart={handleStartTask}
       />
     </View>
   );
@@ -700,6 +1224,219 @@ const styles = StyleSheet.create({
   },
   metaTag: {
     marginLeft: 12,
+  },
+  timerOverlay: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  timerModal: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  timerTitulo: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1d3557",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  timerEtapa: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#2a9d8f",
+    marginBottom: 6,
+  },
+  timerContagem: {
+    fontSize: 52,
+    fontWeight: "800",
+    color: "#264653",
+    marginBottom: 8,
+  },
+  timerCiclo: {
+    fontSize: 14,
+    color: "#555",
+  },
+  timerStatus: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#e76f51",
+  },
+  timerBotoes: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 24,
+    width: "100%",
+  },
+  timerBotaoSecundario: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#2a9d8f",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  timerBotaoSecundarioTexto: {
+    color: "#2a9d8f",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  timerBotaoPrincipal: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#e76f51",
+    alignItems: "center",
+  },
+  timerBotaoPrincipalTexto: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  finalizeOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  finalizeModal: {
+    width: "100%",
+    maxWidth: 440,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+  },
+  finalizeTitulo: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1d3557",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  finalizeDescricao: {
+    fontSize: 14,
+    color: "#333",
+    marginBottom: 8,
+  },
+  finalizeSentimentoOpcoes: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  finalizeSentimentoOpcao: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  finalizeSentimentoOpcaoAtiva: {
+    backgroundColor: "#2a9d8f",
+    borderColor: "#1d6e64",
+  },
+  finalizeSentimentoTexto: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#264653",
+  },
+  finalizeSentimentoTextoAtivo: {
+    color: "#fff",
+  },
+  finalizePergunta: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 10,
+  },
+  finalizeConclusaoOpcoes: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  finalizeConclusaoOpcao: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  finalizeConclusaoOpcaoAtiva: {
+    backgroundColor: "#e9c46a",
+    borderColor: "#b48a3a",
+  },
+  finalizeConclusaoTexto: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#264653",
+  },
+  finalizeConclusaoTextoAtivo: {
+    color: "#fff",
+  },
+  finalizeRetomarBloco: {
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  finalizeFollowUp: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: "#f8f9fa",
+    position: "relative",
+  },
+  finalizeFollowUpTexto: {
+    fontSize: 14,
+    color: "#264653",
+  },
+  finalizeBotoes: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+  },
+  finalizeBotaoSecundario: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#f1f1f1",
+    alignItems: "center",
+  },
+  finalizeBotaoSecundarioTexto: {
+    color: "#264653",
+    fontWeight: "600",
+  },
+  finalizeBotaoPrincipal: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#2a9d8f",
+    alignItems: "center",
+  },
+  finalizeBotaoPrincipalTexto: {
+    color: "#fff",
+    fontWeight: "700",
   },
 });
 

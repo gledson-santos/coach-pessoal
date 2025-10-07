@@ -23,6 +23,9 @@ export type Evento = {
   accountId?: string | null;
   status?: "ativo" | "removido" | string;
   integrationDate?: string | null;
+  sentimentoInicio?: number | null;
+  sentimentoFim?: number | null;
+  concluida?: boolean;
 };
 
 const DEFAULT_TEMPO_EXECUCAO = 15;
@@ -58,6 +61,45 @@ const sanitizeTempoExecucao = (
   }
 
   return Math.max(1, Math.round(fallback));
+};
+
+const sanitizeSentimento = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const bounded = Math.round(value);
+    if (bounded >= 1 && bounded <= 5) {
+      return bounded;
+    }
+    return Math.min(5, Math.max(1, bounded));
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return sanitizeSentimento(parsed);
+    }
+  }
+
+  return null;
+};
+
+const sanitizeBoolean = (value: unknown, fallback: boolean = false) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (value === 0) return false;
+    if (value === 1) return true;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+  return fallback;
 };
 
 const adicionarColuna = async (
@@ -142,7 +184,10 @@ const dbPromise = (async () => {
       syncId TEXT,
       provider TEXT DEFAULT 'local',
       accountId TEXT,
-      status TEXT DEFAULT 'ativo'
+      status TEXT DEFAULT 'ativo',
+      sentimentoInicio INTEGER,
+      sentimentoFim INTEGER,
+      concluida INTEGER DEFAULT 0
     );
   `);
 
@@ -157,6 +202,9 @@ const dbPromise = (async () => {
   await adicionarColuna(database, "accountId", "TEXT");
   await adicionarColuna(database, "status", "TEXT DEFAULT 'ativo'");
   await adicionarColuna(database, "integrationDate", "TEXT");
+  await adicionarColuna(database, "sentimentoInicio", "INTEGER");
+  await adicionarColuna(database, "sentimentoFim", "INTEGER");
+  await adicionarColuna(database, "concluida", "INTEGER DEFAULT 0");
 
   await database.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_eventos_provider ON eventos(provider)"
@@ -238,6 +286,9 @@ const mapRowToEvento = (row: any): Evento => ({
   accountId: row.accountId ?? null,
   status: row.status ?? undefined,
   integrationDate: row.integrationDate ?? undefined,
+  sentimentoInicio: sanitizeSentimento(row.sentimentoInicio),
+  sentimentoFim: sanitizeSentimento(row.sentimentoFim),
+  concluida: sanitizeBoolean(row.concluida, false),
 });
 
 const normalizarEvento = (ev: Evento): Evento => {
@@ -248,6 +299,14 @@ const normalizarEvento = (ev: Evento): Evento => {
   const status = ev.status ?? "ativo";
   const cor = normalizeCalendarColor(ev.cor);
   const tempoExecucao = sanitizeTempoExecucao(ev.tempoExecucao);
+  const sentimentoInicio =
+    ev.sentimentoInicio === undefined
+      ? undefined
+      : sanitizeSentimento(ev.sentimentoInicio);
+  const sentimentoFim =
+    ev.sentimentoFim === undefined ? undefined : sanitizeSentimento(ev.sentimentoFim);
+  const concluida =
+    ev.concluida === undefined ? undefined : sanitizeBoolean(ev.concluida);
   let integrationDate: string | null | undefined;
   if (ev.integrationDate === undefined) {
     integrationDate = undefined;
@@ -264,6 +323,9 @@ const normalizarEvento = (ev: Evento): Evento => {
     cor,
     tempoExecucao,
     integrationDate,
+    sentimentoInicio,
+    sentimentoFim,
+    concluida,
   };
 };
 
@@ -284,6 +346,9 @@ const salvarEventoInternal = async (
   const createdAt = evento.createdAt ?? updatedAt;
   const syncId = evento.syncId && evento.syncId.trim() ? evento.syncId : generateSyncId();
   const integrationDate = evento.integrationDate ?? null;
+  const sentimentoInicioDb = sanitizeSentimento(evento.sentimentoInicio);
+  const sentimentoFimDb = sanitizeSentimento(evento.sentimentoFim);
+  const concluidaDb = sanitizeBoolean(evento.concluida, false) ? 1 : 0;
 
   const resultado = await db.runAsync(
     `INSERT INTO eventos (
@@ -305,8 +370,11 @@ const salvarEventoInternal = async (
       provider,
       accountId,
       status,
-      integrationDate
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      integrationDate,
+      sentimentoInicio,
+      sentimentoFim,
+      concluida
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       evento.titulo,
       evento.observacao ?? "",
@@ -327,6 +395,9 @@ const salvarEventoInternal = async (
       evento.accountId ?? null,
       evento.status ?? "ativo",
       integrationDate,
+      sentimentoInicioDb,
+      sentimentoFimDb,
+      concluidaDb,
     ]
   );
 
@@ -362,11 +433,47 @@ const atualizarEventoInternal = async (
     integrationDate = evento.integrationDate ?? null;
   }
 
+  let cachedFinalizacao:
+    | { sentimentoInicio: number | null; sentimentoFim: number | null; concluida: number | null }
+    | null = null;
+
+  const ensureFinalizacao = async () => {
+    if (!cachedFinalizacao) {
+      cachedFinalizacao = await db.getFirstAsync<{
+        sentimentoInicio: number | null;
+        sentimentoFim: number | null;
+        concluida: number | null;
+      }>(
+        `SELECT sentimentoInicio, sentimentoFim, concluida FROM eventos WHERE id = ?`,
+        [evento.id]
+      );
+    }
+    return cachedFinalizacao;
+  };
+
+  const sentimentoInicioDb =
+    evento.sentimentoInicio === undefined
+      ? sanitizeSentimento((await ensureFinalizacao())?.sentimentoInicio)
+      : sanitizeSentimento(evento.sentimentoInicio);
+
+  const sentimentoFimDb =
+    evento.sentimentoFim === undefined
+      ? sanitizeSentimento((await ensureFinalizacao())?.sentimentoFim)
+      : sanitizeSentimento(evento.sentimentoFim);
+
+  const concluidaDb = (
+    evento.concluida === undefined
+      ? sanitizeBoolean((await ensureFinalizacao())?.concluida, false)
+      : sanitizeBoolean(evento.concluida, false)
+  )
+    ? 1
+    : 0;
+
   await db.runAsync(
     `UPDATE eventos
      SET titulo = ?, observacao = ?, data = ?, tipo = ?, dificuldade = ?, tempoExecucao = ?, inicio = ?, fim = ?,
         cor = ?, googleId = ?, outlookId = ?, icsUid = ?, updatedAt = ?, provider = ?, accountId = ?, status = ?,
-        integrationDate = ?, syncId = COALESCE(?, syncId)
+        integrationDate = ?, syncId = COALESCE(?, syncId), sentimentoInicio = ?, sentimentoFim = ?, concluida = ?
      WHERE id = ?`,
     [
       evento.titulo,
@@ -387,6 +494,9 @@ const atualizarEventoInternal = async (
       evento.status ?? "ativo",
       integrationDate,
       evento.syncId ?? null,
+      sentimentoInicioDb,
+      sentimentoFimDb,
+      concluidaDb,
       evento.id,
     ]
   );
