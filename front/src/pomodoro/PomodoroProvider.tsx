@@ -267,9 +267,32 @@ export const PomodoroProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [atividadeConcluida, setAtividadeConcluida] = useState<boolean | null>(null);
   const [followUpDate, setFollowUpDate] = useState<string | null>(null);
   const [mostrarFollowUpPicker, setMostrarFollowUpPicker] = useState(false);
+  const [hasUserGesture, setHasUserGesture] = useState(Platform.OS !== "web");
   const followUpInputRef = useRef<any>(null);
   const awaitingActionRef = useRef(false);
   const finalizeHandledRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || hasUserGesture) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleFirstInteraction = () => {
+      setHasUserGesture(true);
+    };
+
+    window.addEventListener("pointerdown", handleFirstInteraction, { once: true } as any);
+    window.addEventListener("keydown", handleFirstInteraction, { once: true } as any);
+
+    return () => {
+      window.removeEventListener("pointerdown", handleFirstInteraction);
+      window.removeEventListener("keydown", handleFirstInteraction);
+    };
+  }, [hasUserGesture]);
 
   const persistPomodoroSnapshot = useCallback(
     async (state: PomodoroState | null) => {
@@ -354,12 +377,15 @@ export const PomodoroProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const triggerStageAlert = useCallback(() => {
+    if (Platform.OS === "web" && !hasUserGesture) {
+      return;
+    }
     try {
       Vibration.vibrate([0, 350, 150, 350]);
     } catch (error) {
       console.warn("[pomodoro] failed to vibrate device", error);
     }
-  }, []);
+  }, [hasUserGesture]);
 
   const abrirFinalizacao = useCallback((state: PomodoroState, autoCompleted: boolean) => {
     setFinalizeContext({
