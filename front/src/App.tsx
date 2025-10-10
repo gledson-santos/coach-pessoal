@@ -7,6 +7,7 @@ import ConfigScreen from "./screens/ConfigScreen";
 import { initializeCalendarAccounts } from "./services/calendarAccountsStore";
 import { initializeCalendarSyncEngine } from "./services/calendarSyncManager";
 import { initializeEventSync } from "./services/eventSync";
+import { PomodoroProvider } from "./pomodoro/PomodoroProvider";
 
 type Tela = "chat" | "agenda" | "tarefas" | "config";
 
@@ -80,42 +81,46 @@ export default function App() {
   };
 
   return (
-    <View style={[styles.container, tela === "tarefas" && styles.containerTarefas]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitulo}>Coach Pessoal</Text>
-        <Text style={styles.headerSub}>Seu assistente de produtividade</Text>
-      </View>
+    <PomodoroProvider>
+      <View style={[styles.container, tela === "tarefas" && styles.containerTarefas]}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitulo}>Coach Pessoal</Text>
+          <Text style={styles.headerSub}>Seu assistente de produtividade</Text>
+        </View>
 
-      <View style={[styles.conteudo, tela === "tarefas" && styles.conteudoTarefas]}>{renderConteudo()}</View>
+        <View style={[styles.conteudo, tela === "tarefas" && styles.conteudoTarefas]}>
+          {renderConteudo()}
+        </View>
 
-      <View style={styles.menu}>
-        {menuOptions.map(({ key, label, icon, activeIcon }) => {
-          const isActive = tela === key;
-          const color = isActive ? "#264653" : "#7a7a7a";
-          return (
-            <TouchableOpacity
-              key={key}
-              onPress={() => setTela(key)}
-              style={styles.menuItem}
-            >
-              <Ionicons
-                name={isActive ? activeIcon : icon}
-                size={24}
-                color={color}
-              />
-              <Text
-                style={[
-                  styles.menuTexto,
-                  isActive ? styles.menuTextoAtivo : undefined,
-                ]}
+        <View style={styles.menu}>
+          {menuOptions.map(({ key, label, icon, activeIcon }) => {
+            const isActive = tela === key;
+            const color = isActive ? "#264653" : "#7a7a7a";
+            return (
+              <TouchableOpacity
+                key={key}
+                onPress={() => setTela(key)}
+                style={styles.menuItem}
               >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+                <Ionicons
+                  name={isActive ? activeIcon : icon}
+                  size={24}
+                  color={color}
+                />
+                <Text
+                  style={[
+                    styles.menuTexto,
+                    isActive ? styles.menuTextoAtivo : undefined,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
-    </View>
+    </PomodoroProvider>
   );
 }
 

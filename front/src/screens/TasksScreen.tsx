@@ -1,12 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
 import TaskModal from "../components/TaskModal";
@@ -22,8 +16,10 @@ import {
   deletarEvento,
   listarEventos,
   salvarEvento,
+  subscribeEventoChanges,
 } from "../database";
 import { filterVisibleEvents } from "../utils/eventFilters";
+import { usePomodoro } from "../pomodoro/PomodoroProvider";
 type Task = Evento;
 type DisplayTask = Task & {
   aggregatedCount?: number;
@@ -247,14 +243,25 @@ export default function TasksScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("hoje");
+  const { startTask } = usePomodoro();
   const carregarTarefas = useCallback(async () => {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
-    setTasks(visiveis as Task[]);
+    const ativos = visiveis.filter((evento) => !evento.concluida);
+    setTasks(ativos as Task[]);
   }, []);
 
   useEffect(() => {
     carregarTarefas();
+  }, [carregarTarefas]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeEventoChanges(() => {
+      carregarTarefas();
+    });
+    return () => {
+      unsubscribe();
+    };
   }, [carregarTarefas]);
 
   useEffect(() => {
@@ -290,6 +297,14 @@ export default function TasksScreen() {
       unsubscribe();
     };
   }, [carregarTarefas]);
+
+  const handleStartTask = useCallback(
+    async (task: Task, { sentimentoInicio }: { sentimentoInicio: number }) => {
+      await startTask(task, { sentimentoInicio });
+      await carregarTarefas();
+    },
+    [carregarTarefas, startTask]
+  );
   const categorizedTasks = useMemo<Record<FilterKey, DisplayTask[]>>(() => {
     const msPorDia = 1000 * 60 * 60 * 24;
     const agora = new Date();
@@ -418,6 +433,7 @@ export default function TasksScreen() {
       console.warn("[tasks] failed to trigger sync after delete", error);
     }
   };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -489,12 +505,14 @@ export default function TasksScreen() {
           </Text>
         )}
       </ScrollView>
+
       <TaskModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         onSave={handleSave}
         onDelete={(id) => handleDelete(id)}
         initialData={selectedTask}
+        onStart={handleStartTask}
       />
     </View>
   );

@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { Evento, salvarEvento, listarEventos, atualizarEvento } from "../database";
 import TaskModal from "../components/TaskModal";
+import { usePomodoro } from "../pomodoro/PomodoroProvider";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
 import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
 import { triggerEventSync } from "../services/eventSync";
@@ -62,6 +63,7 @@ const mesclarIntervalos = (intervalos: OverlapInterval[]) => {
 export default function AgendaScreen() {
   const [dataAtual, setDataAtual] = useState(new Date());
   const [eventos, setEventos] = useState<EventoAgenda[]>([]);
+  const { startTask } = usePomodoro();
 
   const carregarEventos = useCallback(async () => {
     const lista = await listarEventos();
@@ -370,7 +372,10 @@ export default function AgendaScreen() {
               ))}
 
               {eventosDiaAtual.map((ev) => {
-                const corBase = ev.conflict
+                const concluida = Boolean(ev.concluida);
+                const corBase = concluida
+                  ? "#b0b0b0"
+                  : ev.conflict
                   ? "#e63946"
                   : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                 const altura = Math.max(
@@ -385,6 +390,7 @@ export default function AgendaScreen() {
                   top: ev.startMin * MINUTE_HEIGHT,
                   height: altura,
                   backgroundColor: corBase,
+                  opacity: concluida ? 0.65 : 1,
                 };
 
                 if (larguraTimeline > 0) {
@@ -540,7 +546,10 @@ export default function AgendaScreen() {
                       ))}
 
                       {eventosDia.map((ev) => {
-                        const corBase = ev.conflict
+                        const concluida = Boolean(ev.concluida);
+                        const corBase = concluida
+                          ? "#b0b0b0"
+                          : ev.conflict
                           ? "#e63946"
                           : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                         const altura = Math.max(
@@ -564,6 +573,7 @@ export default function AgendaScreen() {
                           backgroundColor: corBase,
                           width: larguraEvento,
                           left,
+                          opacity: concluida ? 0.65 : 1,
                         };
 
                         if (isEventoCurto) {
@@ -678,6 +688,10 @@ export default function AgendaScreen() {
           }
         }}
         initialData={tarefaSelecionada}
+        onStart={async (task, options) => {
+          await startTask(task as EventoAgenda, options);
+          await carregarEventos();
+        }}
       />
     </View>
   );
