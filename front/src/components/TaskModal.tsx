@@ -51,6 +51,24 @@ const DURACOES = Array.from({ length: (8 * 60) / 15 }, (_, index) => {
   };
 });
 
+const normalizarTipo = (valor?: string | null) => {
+  if (!valor) {
+    return "";
+  }
+  const trimmed = valor.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "pessoal") {
+    return "Pessoal";
+  }
+  if (lower === "trabalho") {
+    return "Trabalho";
+  }
+  return trimmed;
+};
+
 const formatarData = (valor: string) => {
   if (!valor) return "";
   const dataConvertida = new Date(valor);
@@ -112,7 +130,7 @@ export default function TaskModal({
       setTitulo(initialData.titulo || "");
       setObservacao(initialData.observacao || "");
       setData(initialData.data || "");
-      setTipo(initialData.tipo || "");
+      setTipo(normalizarTipo(initialData.tipo));
       setDificuldade(initialData.dificuldade || "");
       setTempoExecucao(initialData.tempoExecucao ?? 15);
       setSentimentoInicio(
@@ -124,7 +142,7 @@ export default function TaskModal({
         titulo: initialData.titulo || "",
         observacao: initialData.observacao || "",
         data: initialData.data || "",
-        tipo: initialData.tipo || "",
+        tipo: normalizarTipo(initialData.tipo),
         dificuldade: initialData.dificuldade || "",
         tempoExecucao: initialData.tempoExecucao ?? 15,
       });
@@ -262,13 +280,15 @@ export default function TaskModal({
       alert("Nenhuma alteração foi realizada.");
       return;
     }
+    const tipoNormalizado = normalizarTipo(tipo);
+
     await Promise.resolve(
       onSave({
         id: initialData?.id,
         titulo,
         observacao,
         data,
-        tipo,
+        tipo: tipoNormalizado,
         dificuldade,
         tempoExecucao,
       })
@@ -373,12 +393,14 @@ export default function TaskModal({
       return;
     }
 
+    const tipoNormalizado = normalizarTipo(tipo);
+
     const tarefaAtualizada: Task = {
       ...initialData,
       titulo,
       observacao,
       data,
-      tipo,
+      tipo: tipoNormalizado,
       dificuldade,
       tempoExecucao,
     };
