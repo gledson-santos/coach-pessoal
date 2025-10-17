@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
+import { normalizarTipoTarefa } from "../utils/taskTypes";
+
 type Task = {
   id?: number;
   titulo: string;
@@ -50,24 +52,6 @@ const DURACOES = Array.from({ length: (8 * 60) / 15 }, (_, index) => {
     value,
   };
 });
-
-const normalizarTipo = (valor?: string | null) => {
-  if (!valor) {
-    return "";
-  }
-  const trimmed = valor.trim();
-  if (!trimmed) {
-    return "";
-  }
-  const lower = trimmed.toLowerCase();
-  if (lower === "pessoal") {
-    return "Pessoal";
-  }
-  if (lower === "trabalho") {
-    return "Trabalho";
-  }
-  return trimmed;
-};
 
 const formatarData = (valor: string) => {
   if (!valor) return "";
@@ -130,7 +114,7 @@ export default function TaskModal({
       setTitulo(initialData.titulo || "");
       setObservacao(initialData.observacao || "");
       setData(initialData.data || "");
-      setTipo(normalizarTipo(initialData.tipo));
+      setTipo(normalizarTipoTarefa(initialData.tipo));
       setDificuldade(initialData.dificuldade || "");
       setTempoExecucao(initialData.tempoExecucao ?? 15);
       setSentimentoInicio(
@@ -142,7 +126,7 @@ export default function TaskModal({
         titulo: initialData.titulo || "",
         observacao: initialData.observacao || "",
         data: initialData.data || "",
-        tipo: normalizarTipo(initialData.tipo),
+        tipo: normalizarTipoTarefa(initialData.tipo),
         dificuldade: initialData.dificuldade || "",
         tempoExecucao: initialData.tempoExecucao ?? 15,
       });
@@ -280,7 +264,7 @@ export default function TaskModal({
       alert("Nenhuma alteração foi realizada.");
       return;
     }
-    const tipoNormalizado = normalizarTipo(tipo);
+    const tipoNormalizado = normalizarTipoTarefa(tipo);
 
     await Promise.resolve(
       onSave({
@@ -393,7 +377,7 @@ export default function TaskModal({
       return;
     }
 
-    const tipoNormalizado = normalizarTipo(tipo);
+    const tipoNormalizado = normalizarTipoTarefa(tipo);
 
     const tarefaAtualizada: Task = {
       ...initialData,
