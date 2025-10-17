@@ -80,6 +80,9 @@ export default function AgendaScreen() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [tarefaSelecionada, setTarefaSelecionada] = useState<any>(null);
+  const [modalMode, setModalMode] = useState<"create" | "edit" | "clone">(
+    "create"
+  );
 
 
   const weekHorizontalRef = useRef<ScrollView | null>(null);
@@ -293,6 +296,7 @@ export default function AgendaScreen() {
   };
 
   const abrirModalNova = () => {
+    setModalMode("create");
     setTarefaSelecionada(null);
     setModalVisible(true);
   };
@@ -300,11 +304,14 @@ export default function AgendaScreen() {
   const abrirModalEditar = (tarefa: any) => {
     if (tarefa) {
       const { startMin, endMin, conflict, overlaps, uniqueKey, columnIndex, maxColumns, ...limpo } = tarefa;
+      const concluida = Boolean(limpo.concluida);
+      setModalMode(concluida ? "clone" : "edit");
       setTarefaSelecionada({
         ...limpo,
         tipo: normalizarTipoTarefa(limpo.tipo) || limpo.tipo || "",
       });
     } else {
+      setModalMode("create");
       setTarefaSelecionada(null);
     }
     setModalVisible(true);
@@ -681,7 +688,11 @@ export default function AgendaScreen() {
 
       <TaskModal
         visible={modalVisible}
-        onClose={() => setModalVisible(false)}
+        onClose={() => {
+          setModalVisible(false);
+          setTarefaSelecionada(null);
+          setModalMode("create");
+        }}
         onSave={async (task) => {
           if (task.id) {
             await atualizarEvento(task);
@@ -700,6 +711,7 @@ export default function AgendaScreen() {
           await startTask(task as EventoAgenda, options);
           await carregarEventos();
         }}
+        mode={modalMode}
       />
     </View>
   );

@@ -22,6 +22,8 @@ type Task = {
   tipo: string;
   dificuldade: string;
   tempoExecucao?: number;
+  sentimentoInicio?: number | null;
+  concluida?: boolean;
 };
 
 interface TaskModalProps {
@@ -31,6 +33,7 @@ interface TaskModalProps {
   onDelete?: (id: number) => Promise<void> | void;
   initialData?: Task | null;
   onStart?: (task: Task, options: { sentimentoInicio: number }) => void;
+  mode?: "create" | "edit" | "clone";
 }
 
 const formatarDuracao = (minutos: number) => {
@@ -87,6 +90,7 @@ export default function TaskModal({
   onDelete,
   initialData,
   onStart,
+  mode,
 }: TaskModalProps) {
   const [titulo, setTitulo] = useState("");
   const [observacao, setObservacao] = useState("");
@@ -109,24 +113,30 @@ export default function TaskModal({
   });
   const dataInputRef = useRef<any>(null);
 
+  const modalMode = mode ?? (initialData ? "edit" : "create");
+
   useEffect(() => {
     if (initialData) {
+      const tipoNormalizado = normalizarTipoTarefa(initialData.tipo);
+      const dataInicial = modalMode === "clone" ? "" : initialData.data || "";
       setTitulo(initialData.titulo || "");
       setObservacao(initialData.observacao || "");
-      setData(initialData.data || "");
-      setTipo(normalizarTipoTarefa(initialData.tipo));
+      setData(dataInicial);
+      setTipo(tipoNormalizado);
       setDificuldade(initialData.dificuldade || "");
       setTempoExecucao(initialData.tempoExecucao ?? 15);
       setSentimentoInicio(
-        typeof initialData.sentimentoInicio === "number"
+        modalMode === "clone"
+          ? null
+          : typeof initialData.sentimentoInicio === "number"
           ? initialData.sentimentoInicio
           : null
       );
       setDadosOriginais({
         titulo: initialData.titulo || "",
         observacao: initialData.observacao || "",
-        data: initialData.data || "",
-        tipo: normalizarTipoTarefa(initialData.tipo),
+        data: dataInicial,
+        tipo: tipoNormalizado,
         dificuldade: initialData.dificuldade || "",
         tempoExecucao: initialData.tempoExecucao ?? 15,
       });
@@ -151,12 +161,7 @@ export default function TaskModal({
     setMostrarDuracoes(false);
     setMostrarModalInicio(false);
     setTextoConfirmacao("");
-    setSentimentoInicio(
-      initialData && typeof initialData.sentimentoInicio === "number"
-        ? initialData.sentimentoInicio
-        : null
-    );
-  }, [initialData, visible]);
+  }, [initialData, visible, modalMode]);
 
   const dataSelecionada = data
     ? formatarData(data)
@@ -252,7 +257,10 @@ export default function TaskModal({
     [titulo, tipo, dificuldade, tempoExecucao]
   );
 
-  const podeSalvar = camposObrigatoriosPreenchidos && houveAlteracao;
+  const permiteSalvarSemAlteracao = modalMode === "clone" || !initialData;
+  const podeSalvar =
+    camposObrigatoriosPreenchidos &&
+    (permiteSalvarSemAlteracao || houveAlteracao);
 
   const salvar = async () => {
     if (!camposObrigatoriosPreenchidos) {
@@ -260,15 +268,17 @@ export default function TaskModal({
       return;
     }
 
-    if (!houveAlteracao) {
+    if (!permiteSalvarSemAlteracao && !houveAlteracao) {
       alert("Nenhuma alteração foi realizada.");
       return;
     }
     const tipoNormalizado = normalizarTipoTarefa(tipo);
 
+    const idParaSalvar = modalMode === "clone" ? undefined : initialData?.id;
+
     await Promise.resolve(
       onSave({
-        id: initialData?.id,
+        id: idParaSalvar,
         titulo,
         observacao,
         data,
@@ -398,12 +408,24 @@ export default function TaskModal({
     onClose();
   };
 
+  const headerTitle =
+    modalMode === "clone"
+      ? "Clonar Tarefa"
+      : modalMode === "create"
+      ? "Nova Tarefa"
+      : "";
+
+  const botaoPrincipalTexto = modalMode === "clone" ? "Clonar" : "Salvar";
+  const mostrarBotaoExcluir =
+    modalMode === "edit" && Boolean(initialData?.id && onDelete);
+  const mostrarBotaoIniciar = modalMode !== "clone" && Boolean(onStart);
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.modal}>
           <View style={styles.header}>
-            {initialData ? (
+            {modalMode !== "create" ? (
               <TouchableOpacity
                 onPress={onClose}
                 style={styles.backButton}
@@ -411,9 +433,8 @@ export default function TaskModal({
               >
                 <Text style={styles.backButtonText}>←</Text>
               </TouchableOpacity>
-            ) : (
-              <Text style={styles.titulo}>Nova Tarefa</Text>
-            )}
+            ) : null}
+            {headerTitle ? <Text style={styles.titulo}>{headerTitle}</Text> : null}
           </View>
 
           <View style={styles.field}>
@@ -590,7 +611,7 @@ export default function TaskModal({
           </View>
 
           <View style={styles.btnRow}>
-            {initialData && onDelete && (
+            {mostrarBotaoExcluir && (
               <TouchableOpacity style={styles.excluir} onPress={excluir}>
                 <Text style={styles.textoBotaoBranco}>Excluir</Text>
               </TouchableOpacity>
@@ -601,90 +622,94 @@ export default function TaskModal({
               onPress={salvar}
               disabled={!podeSalvar}
             >
-              <Text style={styles.textoBotaoBranco}>Salvar</Text>
+              <Text style={styles.textoBotaoBranco}>{botaoPrincipalTexto}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
-              <Text style={styles.iniciarTexto}>Iniciar</Text>
-            </TouchableOpacity>
+            {mostrarBotaoIniciar ? (
+              <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
+                <Text style={styles.iniciarTexto}>Iniciar</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
       </View>
 
-      <Modal visible={mostrarModalInicio} animationType="fade" transparent>
-        <View style={styles.overlay}>
-          <View style={styles.modalInicio}>
-            <Text style={styles.tituloModalInicio}>Vamos Começar!</Text>
-            <Text style={styles.textoModalInicio}>
-              Me confirme escrevendo o compromisso no formato:
-            </Text>
-            <Text style={styles.textoExemplo}>
-              "{fraseConfirmacao}"
-            </Text>
-            <View style={styles.sentimentoBloco}>
-              <Text style={styles.sentimentoTitulo}>Como você está se sentindo agora?</Text>
-              <View style={styles.sentimentoOpcoes}>
-                {[1, 2, 3, 4, 5].map((nivel) => {
-                  const ativo = sentimentoInicio === nivel;
-                  return (
-                    <TouchableOpacity
-                      key={nivel}
-                      style={[
-                        styles.sentimentoOpcao,
-                        ativo && styles.sentimentoOpcaoAtiva,
-                      ]}
-                      onPress={() => setSentimentoInicio(nivel)}
-                    >
-                      <Text
+      {mostrarBotaoIniciar ? (
+        <Modal visible={mostrarModalInicio} animationType="fade" transparent>
+          <View style={styles.overlay}>
+            <View style={styles.modalInicio}>
+              <Text style={styles.tituloModalInicio}>Vamos Começar!</Text>
+              <Text style={styles.textoModalInicio}>
+                Me confirme escrevendo o compromisso no formato:
+              </Text>
+              <Text style={styles.textoExemplo}>
+                "{fraseConfirmacao}"
+              </Text>
+              <View style={styles.sentimentoBloco}>
+                <Text style={styles.sentimentoTitulo}>Como você está se sentindo agora?</Text>
+                <View style={styles.sentimentoOpcoes}>
+                  {[1, 2, 3, 4, 5].map((nivel) => {
+                    const ativo = sentimentoInicio === nivel;
+                    return (
+                      <TouchableOpacity
+                        key={nivel}
                         style={[
-                          styles.sentimentoOpcaoTexto,
-                          ativo && styles.sentimentoOpcaoTextoAtivo,
+                          styles.sentimentoOpcao,
+                          ativo && styles.sentimentoOpcaoAtiva,
                         ]}
+                        onPress={() => setSentimentoInicio(nivel)}
                       >
-                        {nivel}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.sentimentoOpcaoTexto,
+                            ativo && styles.sentimentoOpcaoTextoAtivo,
+                          ]}
+                        >
+                          {nivel}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              <TextInput
+                placeholder="Digite o compromisso para iniciar"
+                style={[styles.input, styles.textArea, styles.inputConfirmacao]}
+                multiline
+                value={textoConfirmacao}
+                onChangeText={setTextoConfirmacao}
+              />
+              <View style={styles.btnRowInicio}>
+                <TouchableOpacity
+                  style={styles.cancelarInicio}
+                  onPress={() => {
+                    setMostrarModalInicio(false);
+                    setTextoConfirmacao("");
+                    setSentimentoInicio(
+                      initialData && typeof initialData.sentimentoInicio === "number"
+                        ? initialData.sentimentoInicio
+                        : null
+                    );
+                  }}
+                >
+                  <Text style={styles.cancelarInicioTexto}>Voltar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={
+                    podeConfirmarInicio
+                      ? styles.confirmarInicio
+                      : [styles.confirmarInicio, styles.confirmarInicioDesabilitado]
+                  }
+                  disabled={!podeConfirmarInicio}
+                  onPress={confirmarInicio}
+                >
+                  <Text style={styles.confirmarInicioTexto}>Começar</Text>
+                </TouchableOpacity>
               </View>
             </View>
-            <TextInput
-              placeholder="Digite o compromisso para iniciar"
-              style={[styles.input, styles.textArea, styles.inputConfirmacao]}
-              multiline
-              value={textoConfirmacao}
-              onChangeText={setTextoConfirmacao}
-            />
-            <View style={styles.btnRowInicio}>
-              <TouchableOpacity
-                style={styles.cancelarInicio}
-                onPress={() => {
-                  setMostrarModalInicio(false);
-                  setTextoConfirmacao("");
-                  setSentimentoInicio(
-                    initialData && typeof initialData.sentimentoInicio === "number"
-                      ? initialData.sentimentoInicio
-                      : null
-                  );
-                }}
-              >
-                <Text style={styles.cancelarInicioTexto}>Voltar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={
-                  podeConfirmarInicio
-                    ? styles.confirmarInicio
-                    : [styles.confirmarInicio, styles.confirmarInicioDesabilitado]
-                }
-                disabled={!podeConfirmarInicio}
-                onPress={confirmarInicio}
-              >
-                <Text style={styles.confirmarInicioTexto}>Começar</Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      ) : null}
     </Modal>
   );
 }
