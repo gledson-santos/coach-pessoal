@@ -300,10 +300,10 @@ export default function TaskModal({
           }
         : {};
 
-    const corParaSalvar = getCalendarColorByType(
-      tipoNormalizado,
-      initialData?.cor
-    );
+    const corParaSalvar =
+      modalMode === "clone"
+        ? getCalendarColorByType(tipoNormalizado)
+        : getCalendarColorByType(tipoNormalizado, initialData?.cor);
 
     await Promise.resolve(
       onSave({

@@ -4,6 +4,19 @@ export type CalendarCategory = {
   key: CalendarCategoryKey;
   color: string;
   label: string;
+  aliases?: string[];
+};
+
+const normalizeCategoryText = (value?: string | null) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 };
 
 export const CALENDAR_CATEGORIES: CalendarCategory[] = [
@@ -11,11 +24,37 @@ export const CALENDAR_CATEGORIES: CalendarCategory[] = [
     key: "personal",
     color: "#2a9d8f",
     label: "Pessoal",
+    aliases: [
+      "pessoal",
+      "pessoais",
+      "personal",
+      "famil",
+      "familia",
+      "family",
+      "home",
+      "casa",
+      "vida",
+    ],
   },
   {
     key: "work",
     color: "#264653",
     label: "Trabalho",
+    aliases: [
+      "trabalho",
+      "trabalh",
+      "work",
+      "profiss",
+      "profes",
+      "profissional",
+      "professional",
+      "empresa",
+      "empres",
+      "business",
+      "job",
+      "career",
+      "carreir",
+    ],
   },
 ];
 
@@ -41,19 +80,31 @@ export const findCalendarCategoryByColor = (color?: string | null) => {
 };
 
 export const findCalendarCategoryByType = (type?: string | null) => {
-  if (typeof type !== "string") {
-    return null;
-  }
-
-  const normalized = type.trim().toLowerCase();
+  const normalized = normalizeCategoryText(type);
   if (!normalized) {
     return null;
   }
 
   return (
-    CALENDAR_CATEGORIES.find(
-      (category) => category.label.trim().toLowerCase() === normalized
-    ) ?? null
+    CALENDAR_CATEGORIES.find((category) => {
+      const labelNormalized = normalizeCategoryText(category.label);
+      if (labelNormalized === normalized) {
+        return true;
+      }
+
+      const keyNormalized = normalizeCategoryText(category.key);
+      if (keyNormalized === normalized) {
+        return true;
+      }
+
+      if (category.aliases?.length) {
+        return category.aliases.some(
+          (alias) => normalizeCategoryText(alias) === normalized
+        );
+      }
+
+      return false;
+    }) ?? null
   );
 };
 
