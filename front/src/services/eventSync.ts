@@ -8,6 +8,7 @@ import {
   Evento,
 } from "../database";
 import { buildApiUrl } from "../config/api";
+import { normalizeToIsoString } from "../utils/date";
 import { normalizarTipoTarefa } from "../utils/taskTypes";
 
 const STORAGE_KEY = "@coach/eventSync";
@@ -47,24 +48,15 @@ const registerSyncedVersion = (id: string, updatedAt?: string | null) => {
   if (!id) {
     return;
   }
-  const normalized = sanitizeIso(updatedAt ?? undefined) ?? (typeof updatedAt === "string" ? updatedAt : null);
+  const normalized =
+    normalizeToIsoString(updatedAt ?? undefined) ??
+    (typeof updatedAt === "string" ? updatedAt : null);
   if (!normalized) {
     syncedEventVersions.delete(id);
     return;
   }
   syncedEventVersions.set(id, normalized);
   enforceSyncedCacheLimit();
-};
-
-const sanitizeIso = (value?: string | null): string | null => {
-  if (!value || typeof value !== "string") {
-    return null;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date.toISOString();
 };
 
 const sanitizeOptionalString = (value?: string | null): string | null => {
@@ -116,7 +108,7 @@ const loadState = async () => {
         lastRemoteSyncAt?: number | string | null;
       };
       if (typeof parsed?.lastSyncAt === "string" && parsed.lastSyncAt.trim()) {
-        const iso = sanitizeIso(parsed.lastSyncAt);
+        const iso = normalizeToIsoString(parsed.lastSyncAt);
         lastSyncAt = iso ?? lastSyncAt;
       }
       if (
@@ -136,7 +128,7 @@ const loadState = async () => {
       if (parsed?.syncedEvents && typeof parsed.syncedEvents === "object") {
         Object.entries(parsed.syncedEvents).forEach(([id, updatedAt]) => {
           if (typeof id === "string" && typeof updatedAt === "string") {
-            const iso = sanitizeIso(updatedAt);
+            const iso = normalizeToIsoString(updatedAt);
             if (iso) {
               syncedEventVersions.set(id, iso);
               enforceSyncedCacheLimit();
@@ -207,8 +199,8 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
   if (!evento.syncId || !evento.syncId.trim()) {
     return null;
   }
-  const updatedAt = sanitizeIso(evento.updatedAt) ?? new Date().toISOString();
-  const createdAt = sanitizeIso(evento.createdAt) ?? updatedAt;
+  const updatedAt = normalizeToIsoString(evento.updatedAt) ?? new Date().toISOString();
+  const createdAt = normalizeToIsoString(evento.createdAt) ?? updatedAt;
   const duration =
     typeof evento.tempoExecucao === "number" && Number.isFinite(evento.tempoExecucao)
       ? Math.max(1, Math.round(evento.tempoExecucao))
@@ -216,18 +208,20 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
   const provider = sanitizeOptionalString(evento.provider as string) ?? "local";
   const accountId = sanitizeOptionalString(evento.accountId ?? undefined);
   const hasIntegrationDate = evento.integrationDate !== undefined;
-  const integrationDate = hasIntegrationDate ? sanitizeIso(evento.integrationDate) ?? null : null;
+  const integrationDate = hasIntegrationDate
+    ? normalizeToIsoString(evento.integrationDate) ?? null
+    : null;
 
   return {
     id: evento.syncId,
     title: evento.titulo,
     notes: sanitizeOptionalString(evento.observacao),
-    date: sanitizeIso(evento.data) ?? sanitizeOptionalString(evento.data),
+    date: normalizeToIsoString(evento.data) ?? sanitizeOptionalString(evento.data),
     type: normalizarTipoTarefa(evento.tipo) || evento.tipo,
     difficulty: evento.dificuldade,
     duration,
-    start: sanitizeIso(evento.inicio) ?? sanitizeOptionalString(evento.inicio),
-    end: sanitizeIso(evento.fim) ?? sanitizeOptionalString(evento.fim),
+    start: normalizeToIsoString(evento.inicio) ?? sanitizeOptionalString(evento.inicio),
+    end: normalizeToIsoString(evento.fim) ?? sanitizeOptionalString(evento.fim),
     color: sanitizeOptionalString(evento.cor),
     status: sanitizeOptionalString(evento.status) ?? "ativo",
     provider,
@@ -243,10 +237,10 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
 };
 
 const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
-  const updatedAt = sanitizeIso(payload.updatedAt) ?? new Date().toISOString();
+  const updatedAt = normalizeToIsoString(payload.updatedAt) ?? new Date().toISOString();
   const createdAt =
-    sanitizeIso(payload.createdAt) ??
-    sanitizeIso(payload.updatedAt) ??
+    normalizeToIsoString(payload.createdAt) ??
+    normalizeToIsoString(payload.updatedAt) ??
     updatedAt;
   const duration =
     typeof payload.duration === "number" && Number.isFinite(payload.duration)
@@ -259,7 +253,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
   const provider = sanitizeOptionalString(payload.provider) ?? "local";
   const status = sanitizeOptionalString(payload.status);
   const accountId = sanitizeOptionalString(payload.accountId);
-  const integrationDate = sanitizeIso(payload.integrationDate) ?? null;
+  const integrationDate = normalizeToIsoString(payload.integrationDate) ?? null;
   return {
     titulo: title,
     observacao: payload.notes ?? undefined,
@@ -299,7 +293,7 @@ const applyRemoteEvents = async (events: SyncEventPayload[]) => {
       }
       const local = await encontrarEventoPorSyncId(event.id);
       const incoming = mapRemoteToEvento(event);
-      if (local?.updatedAt && sanitizeIso(local.updatedAt) === incoming.updatedAt) {
+      if (local?.updatedAt && normalizeToIsoString(local.updatedAt) === incoming.updatedAt) {
         continue;
       }
       if (local?.id) {
@@ -315,7 +309,7 @@ const applyRemoteEvents = async (events: SyncEventPayload[]) => {
 
 const filterSyncedPayload = (events: SyncEventPayload[]) => {
   return events.filter((item) => {
-    const normalized = sanitizeIso(item.updatedAt) ?? item.updatedAt;
+    const normalized = normalizeToIsoString(item.updatedAt) ?? item.updatedAt;
     const existing = syncedEventVersions.get(item.id);
     if (!existing) {
       return true;
@@ -398,8 +392,8 @@ const performSync = async (forceRemotePull: boolean) => {
         remoteEventMap.set(event.id, event);
         continue;
       }
-      const existingTime = sanitizeIso(existing.updatedAt);
-      const incomingTime = sanitizeIso(event.updatedAt);
+      const existingTime = normalizeToIsoString(existing.updatedAt);
+      const incomingTime = normalizeToIsoString(event.updatedAt);
       if (!existingTime || !incomingTime) {
         remoteEventMap.set(event.id, event);
         continue;
@@ -409,7 +403,7 @@ const performSync = async (forceRemotePull: boolean) => {
       }
     }
 
-    const serverTimeIso = sanitizeIso(data.serverTime);
+    const serverTimeIso = normalizeToIsoString(data.serverTime);
     if (serverTimeIso) {
       latestServerTime = serverTimeIso;
     }
