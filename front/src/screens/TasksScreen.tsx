@@ -243,6 +243,9 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [modalMode, setModalMode] = useState<"create" | "edit" | "clone">(
+    "create"
+  );
   const [activeFilter, setActiveFilter] = useState<FilterKey>("hoje");
   const { startTask } = usePomodoro();
   const carregarTarefas = useCallback(async () => {
@@ -379,6 +382,7 @@ export default function TasksScreen() {
   const hasTasks = displayedTasks.length > 0;
   const abrirNovaTarefa = () => {
     setSelectedTask(null);
+    setModalMode("create");
     setModalVisible(true);
   };
   const abrirEdicao = (task: Task) => {
@@ -386,6 +390,7 @@ export default function TasksScreen() {
       ...task,
       tipo: normalizarTipoTarefa(task.tipo) || task.tipo || "",
     });
+    setModalMode("edit");
     setModalVisible(true);
   };
   const handleSave = async (task: Task) => {
@@ -516,11 +521,19 @@ export default function TasksScreen() {
 
       <TaskModal
         visible={modalVisible}
-        onClose={() => setModalVisible(false)}
+        onClose={() => {
+          setModalVisible(false);
+          setSelectedTask(null);
+          setModalMode("create");
+        }}
         onSave={handleSave}
         onDelete={(id) => handleDelete(id)}
         initialData={selectedTask}
         onStart={handleStartTask}
+        mode={modalMode}
+        onClone={() => {
+          setModalMode("clone");
+        }}
       />
     </View>
   );

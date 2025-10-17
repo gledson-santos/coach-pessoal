@@ -34,6 +34,7 @@ interface TaskModalProps {
   initialData?: Task | null;
   onStart?: (task: Task, options: { sentimentoInicio: number }) => void;
   mode?: "create" | "edit" | "clone";
+  onClone?: () => void;
 }
 
 const formatarDuracao = (minutos: number) => {
@@ -91,6 +92,7 @@ export default function TaskModal({
   initialData,
   onStart,
   mode,
+  onClone,
 }: TaskModalProps) {
   const [titulo, setTitulo] = useState("");
   const [observacao, setObservacao] = useState("");
@@ -114,6 +116,9 @@ export default function TaskModal({
   const dataInputRef = useRef<any>(null);
 
   const modalMode = mode ?? (initialData ? "edit" : "create");
+  const estaConcluida = Boolean(initialData?.concluida);
+  const emModoVisualizacao = estaConcluida && modalMode !== "clone";
+  const camposDesabilitados = emModoVisualizacao;
 
   useEffect(() => {
     if (initialData) {
@@ -162,6 +167,13 @@ export default function TaskModal({
     setMostrarModalInicio(false);
     setTextoConfirmacao("");
   }, [initialData, visible, modalMode]);
+
+  useEffect(() => {
+    if (camposDesabilitados) {
+      setMostrarDatePicker(false);
+      setMostrarDuracoes(false);
+    }
+  }, [camposDesabilitados]);
 
   const dataSelecionada = data
     ? formatarData(data)
@@ -415,10 +427,25 @@ export default function TaskModal({
       ? "Nova Tarefa"
       : "";
 
-  const botaoPrincipalTexto = modalMode === "clone" ? "Clonar" : "Salvar";
   const mostrarBotaoExcluir =
     modalMode === "edit" && Boolean(initialData?.id && onDelete);
-  const mostrarBotaoIniciar = modalMode !== "clone" && Boolean(onStart);
+  const mostrarBotaoIniciar =
+    !emModoVisualizacao && modalMode !== "clone" && Boolean(onStart);
+  const mostrarBotaoPrincipal =
+    emModoVisualizacao ? Boolean(onClone) : true;
+  const botaoPrincipalDesabilitado = emModoVisualizacao ? false : !podeSalvar;
+  const botaoPrincipalAcao = emModoVisualizacao
+    ? () => {
+        if (onClone) {
+          onClone();
+        }
+      }
+    : salvar;
+  const botaoPrincipalTexto = emModoVisualizacao
+    ? "Clonar"
+    : modalMode === "clone"
+    ? "Clonar"
+    : "Salvar";
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -441,18 +468,20 @@ export default function TaskModal({
             <Text style={styles.label}>Titulo</Text>
             <TextInput
               placeholder="Titulo (obrigatorio)"
-              style={styles.input}
+              style={[styles.input, camposDesabilitados && styles.inputDisabled]}
               value={titulo}
               onChangeText={setTitulo}
+              editable={!camposDesabilitados}
             />
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>Data de Execução</Text>
             <TouchableOpacity
-              style={styles.dataDisplay}
+              style={[styles.dataDisplay, camposDesabilitados && styles.inputDisabled]}
               onPress={abrirSeletorData}
               activeOpacity={0.7}
+              disabled={camposDesabilitados}
             >
               <Text style={styles.dataValue}>{dataSelecionada}</Text>
               {Platform.OS === "web" && (
@@ -468,8 +497,9 @@ export default function TaskModal({
                     left: 0,
                     width: "100%",
                     height: "100%",
-                    cursor: "pointer",
+                    cursor: camposDesabilitados ? "not-allowed" : "pointer",
                   }}
+                  disabled={camposDesabilitados}
                 />
               )}
             </TouchableOpacity>
@@ -490,6 +520,7 @@ export default function TaskModal({
                   <View style={styles.iosPickerActions}>
                     <TouchableOpacity
                       onPress={() => setMostrarDatePicker(false)}
+                      disabled={camposDesabilitados}
                     >
                       <Text style={styles.iosPickerDone}>Concluir</Text>
                     </TouchableOpacity>
@@ -510,10 +541,12 @@ export default function TaskModal({
                   padding: 10,
                   borderRadius: 6,
                   border: "1px solid #ddd",
-                  backgroundColor: "#fff",
+                  backgroundColor: camposDesabilitados ? "#f0f0f0" : "#fff",
                   fontSize: 14,
-                  cursor: "pointer",
+                  cursor: camposDesabilitados ? "not-allowed" : "pointer",
+                  color: camposDesabilitados ? "#777" : "#000",
                 }}
+                disabled={camposDesabilitados}
               >
                 {DURACOES.map((opcao) => (
                   <option key={opcao.value} value={opcao.value}>
@@ -524,9 +557,10 @@ export default function TaskModal({
             ) : (
               <View style={styles.selectWrapper}>
                 <TouchableOpacity
-                  style={styles.selectInput}
+                  style={[styles.selectInput, camposDesabilitados && styles.inputDisabled]}
                   activeOpacity={0.7}
                   onPress={() => setMostrarDuracoes((valor) => !valor)}
+                  disabled={camposDesabilitados}
                 >
                   <Text>{duracaoSelecionada}</Text>
                 </TouchableOpacity>
@@ -544,6 +578,7 @@ export default function TaskModal({
                               ativo && styles.dropdownOptionSelected,
                             ]}
                             onPress={() => selecionarDuracao(opcao.value)}
+                            disabled={camposDesabilitados}
                           >
                             <Text
                               style={
@@ -566,14 +601,24 @@ export default function TaskModal({
             <Text style={styles.label}>Tipo</Text>
             <View style={styles.row}>
               <TouchableOpacity
-                style={[styles.option, tipo === "Pessoal" && styles.selected]}
+                style={[
+                  styles.option,
+                  tipo === "Pessoal" && styles.selected,
+                  camposDesabilitados && styles.optionDisabled,
+                ]}
                 onPress={() => setTipo("Pessoal")}
+                disabled={camposDesabilitados}
               >
                 <Text>Pessoal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.option, tipo === "Trabalho" && styles.selected]}
+                style={[
+                  styles.option,
+                  tipo === "Trabalho" && styles.selected,
+                  camposDesabilitados && styles.optionDisabled,
+                ]}
                 onPress={() => setTipo("Trabalho")}
+                disabled={camposDesabilitados}
               >
                 <Text>Trabalho</Text>
               </TouchableOpacity>
@@ -589,8 +634,10 @@ export default function TaskModal({
                   style={[
                     styles.option,
                     dificuldade === nivel && styles.selected,
+                    camposDesabilitados && styles.optionDisabled,
                   ]}
                   onPress={() => setDificuldade(nivel)}
+                  disabled={camposDesabilitados}
                 >
                   <Text>{nivel}</Text>
                 </TouchableOpacity>
@@ -602,11 +649,12 @@ export default function TaskModal({
             <Text style={styles.label}>Observação</Text>
             <TextInput
               placeholder="Observação"
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, camposDesabilitados && styles.inputDisabled]}
               value={observacao}
               onChangeText={setObservacao}
               multiline
               textAlignVertical="top"
+              editable={!camposDesabilitados}
             />
           </View>
 
@@ -617,19 +665,21 @@ export default function TaskModal({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={[styles.salvar, !podeSalvar && styles.salvarDesabilitado]}
-              onPress={salvar}
-              disabled={!podeSalvar}
-            >
-              <Text style={styles.textoBotaoBranco}>{botaoPrincipalTexto}</Text>
-            </TouchableOpacity>
-
-            {mostrarBotaoIniciar ? (
-              <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
-                <Text style={styles.iniciarTexto}>Iniciar</Text>
+            {mostrarBotaoPrincipal ? (
+              <TouchableOpacity
+                style={[styles.salvar, botaoPrincipalDesabilitado && styles.salvarDesabilitado]}
+                onPress={botaoPrincipalAcao}
+                disabled={botaoPrincipalDesabilitado}
+              >
+                <Text style={styles.textoBotaoBranco}>{botaoPrincipalTexto}</Text>
               </TouchableOpacity>
             ) : null}
+
+            {mostrarBotaoIniciar && (
+              <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
+                <Text style={styles.textoBotaoBranco}>Iniciar</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -757,6 +807,10 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 6,
   },
+  inputDisabled: {
+    backgroundColor: "#f0f0f0",
+    color: "#777",
+  },
   textArea: {
     minHeight: 96,
   },
@@ -841,6 +895,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#fff",
   },
+  optionDisabled: {
+    backgroundColor: "#f0f0f0",
+  },
   selected: {
     backgroundColor: "#e9c46a",
     borderColor: "#b2893f",
@@ -874,10 +931,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     flex: 1,
     alignItems: "center",
-  },
-  iniciarTexto: {
-    color: "#fff",
-    fontWeight: "600",
   },
   textoBotaoBranco: {
     color: "#fff",

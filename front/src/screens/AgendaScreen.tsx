@@ -304,8 +304,7 @@ export default function AgendaScreen() {
   const abrirModalEditar = (tarefa: any) => {
     if (tarefa) {
       const { startMin, endMin, conflict, overlaps, uniqueKey, columnIndex, maxColumns, ...limpo } = tarefa;
-      const concluida = Boolean(limpo.concluida);
-      setModalMode(concluida ? "clone" : "edit");
+      setModalMode("edit");
       setTarefaSelecionada({
         ...limpo,
         tipo: normalizarTipoTarefa(limpo.tipo) || limpo.tipo || "",
@@ -712,6 +711,9 @@ export default function AgendaScreen() {
           await carregarEventos();
         }}
         mode={modalMode}
+        onClone={() => {
+          setModalMode("clone");
+        }}
       />
     </View>
   );
