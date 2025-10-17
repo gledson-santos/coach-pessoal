@@ -30,6 +30,7 @@ type EventoNormalizado = EventoAgenda & {
   uniqueKey: string;
   columnIndex: number;
   maxColumns: number;
+  overdue: boolean;
 };
 
 const horas = Array.from({ length: 24 }, (_, i) => i);
@@ -128,6 +129,8 @@ export default function AgendaScreen() {
   const eventosPorDia = useMemo(() => {
     const mapa = new Map<string, EventoNormalizado[]>();
 
+    const agora = Date.now();
+
     eventos.forEach((ev, index) => {
       const inicioDate = new Date(ev.inicio ?? "");
       if (Number.isNaN(inicioDate.getTime())) {
@@ -142,6 +145,19 @@ export default function AgendaScreen() {
         endMin = startMin + (ev.tempoExecucao ?? DURACAO_MINIMA);
       }
 
+      let horarioFimMs: number | null = null;
+      if (!Number.isNaN(fimDate.getTime())) {
+        horarioFimMs = fimDate.getTime();
+      } else if (!Number.isNaN(inicioDate.getTime())) {
+        const tempoExecucao =
+          typeof ev.tempoExecucao === "number" && Number.isFinite(ev.tempoExecucao)
+            ? ev.tempoExecucao
+            : DURACAO_MINIMA;
+        horarioFimMs = inicioDate.getTime() + tempoExecucao * 60 * 1000;
+      }
+
+      const overdue = Boolean(!ev.concluida && horarioFimMs !== null && horarioFimMs < agora);
+
       const normalizado: EventoNormalizado = {
         ...ev,
         startMin,
@@ -151,6 +167,7 @@ export default function AgendaScreen() {
         uniqueKey: `${ev.id ?? `idx-${index}`}`,
         columnIndex: 0,
         maxColumns: 1,
+        overdue,
       };
 
       const lista = mapa.get(chaveDia);
@@ -303,7 +320,17 @@ export default function AgendaScreen() {
 
   const abrirModalEditar = (tarefa: any) => {
     if (tarefa) {
-      const { startMin, endMin, conflict, overlaps, uniqueKey, columnIndex, maxColumns, ...limpo } = tarefa;
+      const {
+        startMin,
+        endMin,
+        conflict,
+        overlaps,
+        uniqueKey,
+        columnIndex,
+        maxColumns,
+        overdue,
+        ...limpo
+      } = tarefa;
       setModalMode("edit");
       setTarefaSelecionada({
         ...limpo,
@@ -389,7 +416,7 @@ export default function AgendaScreen() {
                 const concluida = Boolean(ev.concluida);
                 const corBase = concluida
                   ? "#b0b0b0"
-                  : ev.conflict
+                  : ev.overdue
                   ? "#e63946"
                   : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                 const altura = Math.max(
@@ -563,7 +590,7 @@ export default function AgendaScreen() {
                         const concluida = Boolean(ev.concluida);
                         const corBase = concluida
                           ? "#b0b0b0"
-                          : ev.conflict
+                          : ev.overdue
                           ? "#e63946"
                           : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                         const altura = Math.max(
