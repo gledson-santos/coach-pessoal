@@ -13,6 +13,10 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 import { normalizarTipoTarefa } from "../utils/taskTypes";
+import {
+  CALENDAR_CATEGORIES,
+  DEFAULT_CALENDAR_CATEGORY,
+} from "../constants/calendarCategories";
 
 type Task = {
   id?: number;
@@ -25,6 +29,24 @@ type Task = {
   sentimentoInicio?: number | null;
   sentimentoFim?: number | null;
   concluida?: boolean;
+  cor?: string;
+};
+
+const obterCorPeloTipo = (tipo: string, corAtual?: string) => {
+  if (tipo) {
+    const categoria = CALENDAR_CATEGORIES.find(
+      (item) => item.label.toLowerCase() === tipo.toLowerCase()
+    );
+    if (categoria) {
+      return categoria.color;
+    }
+  }
+
+  if (corAtual && corAtual.trim()) {
+    return corAtual.trim().toLowerCase();
+  }
+
+  return DEFAULT_CALENDAR_CATEGORY.color;
 };
 
 interface TaskModalProps {
@@ -298,6 +320,11 @@ export default function TaskModal({
           }
         : {};
 
+    const corParaSalvar = obterCorPeloTipo(
+      tipoNormalizado,
+      initialData?.cor
+    );
+
     await Promise.resolve(
       onSave({
         id: idParaSalvar,
@@ -307,6 +334,7 @@ export default function TaskModal({
         tipo: tipoNormalizado,
         dificuldade,
         tempoExecucao,
+        cor: corParaSalvar,
         ...cloneDefaults,
       })
     );
