@@ -3,9 +3,9 @@ import { CalendarAccount } from "../../types/calendar";
 import { Evento, substituirEventosIcs } from "../../database";
 import { updateCalendarAccountStatus } from "../calendarAccountsStore";
 import { triggerEventSync } from "../eventSync";
+import { inferirTipoPelaCor } from "../../utils/taskTypes";
 
 const DEFAULT_DIFFICULTY = "Media";
-const DEFAULT_TYPE = "Calendário ICS";
 
 const fetchIcsContent = async (url: string): Promise<string> => {
   const response = await fetch(buildApiUrl("/ics/fetch"), {
@@ -627,7 +627,7 @@ export const mapIcsToEvento = (item: ParsedIcsEvent, account: CalendarAccount): 
     titulo: item.summary?.trim() || "Evento sem titulo",
     observacao: item.description || undefined,
     data: inicioIso,
-    tipo: DEFAULT_TYPE,
+    tipo: inferirTipoPelaCor(account.color),
     dificuldade: DEFAULT_DIFFICULTY,
     tempoExecucao,
     inicio: inicioIso,

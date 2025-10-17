@@ -12,6 +12,7 @@ import { persistProviderTokens } from "../calendarProviderActions";
 import { buildApiUrl } from "../../config/api";
 import { getOutlookOAuthConfig } from "../../config/outlookOAuth";
 import { triggerEventSync } from "../eventSync";
+import { inferirTipoPelaCor } from "../../utils/taskTypes";
 
 const TOKEN_ENDPOINT = (tenant: string) =>
   `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`;
@@ -225,7 +226,7 @@ const mapOutlookToEvento = (
     titulo: item.subject ?? "Evento sem titulo",
     observacao: item.bodyPreview ?? item.body?.content ?? undefined,
     data: inicioIso,
-    tipo: "Outlook Calendar",
+    tipo: inferirTipoPelaCor(account.color),
     dificuldade: DEFAULT_DIFFICULTY,
     tempoExecucao,
     inicio: inicioIso,

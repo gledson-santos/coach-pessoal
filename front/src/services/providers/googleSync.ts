@@ -12,6 +12,7 @@ import { persistProviderTokens } from "../calendarProviderActions";
 import { buildApiUrl } from "../../config/api";
 import { GOOGLE_OAUTH_CONFIG } from "../../config/googleOAuth";
 import { triggerEventSync } from "../eventSync";
+import { inferirTipoPelaCor } from "../../utils/taskTypes";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars";
@@ -221,7 +222,7 @@ const mapGoogleToEvento = (
     titulo: item.summary ?? "Evento sem titulo",
     observacao: item.description ?? undefined,
     data: inicioIso,
-    tipo: "Google Calendar",
+    tipo: inferirTipoPelaCor(account.color),
     dificuldade: DEFAULT_DIFFICULTY,
     tempoExecucao,
     inicio: inicioIso,

@@ -1,3 +1,8 @@
+import {
+  DEFAULT_CALENDAR_CATEGORY,
+  findCalendarCategoryByColor,
+} from "../constants/calendarCategories";
+
 const removeDiacritics = (value: string) =>
   value
     .normalize("NFD")
@@ -78,5 +83,10 @@ export const normalizarTipoTarefa = (valor?: string | null): string => {
   }
 
   return trimmed;
+};
+
+export const inferirTipoPelaCor = (cor?: string | null): string => {
+  const categoria = findCalendarCategoryByColor(cor) ?? DEFAULT_CALENDAR_CATEGORY;
+  return categoria.label;
 };
 
