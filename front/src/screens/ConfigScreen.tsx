@@ -146,6 +146,7 @@ export default function ConfigScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [disconnectingAccount, setDisconnectingAccount] = useState<CalendarAccount | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [reconnectingAccountId, setReconnectingAccountId] = useState<string | null>(null);
   const [outlookOAuthConfig, setOutlookOAuthConfig] = useState<OutlookOAuthConfig>(() =>
     getOutlookOAuthConfig()
   );
@@ -760,6 +761,34 @@ export default function ConfigScreen() {
     setDisconnectingAccount(account);
   }, []);
 
+  const disconnectAccount = useCallback(async (account: CalendarAccount) => {
+    const response = await fetch(buildApiUrl(`/accounts/${account.id}`), {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      const payload = await response
+        .json()
+        .catch(() => ({ error: "Nao foi possivel desconectar a conta." }));
+      const message =
+        (payload?.error as string | undefined) ||
+        (payload?.message as string | undefined) ||
+        "Nao foi possivel desconectar a conta.";
+      throw new Error(message);
+    }
+
+    await unregisterCalendarAccount(account.id);
+    await removerEventosSincronizados(account.provider, {
+      accountId: account.id,
+    });
+    await removeCalendarAccount(account.id);
+    try {
+      await triggerEventSync({ force: true });
+    } catch (error) {
+      console.warn("[config] failed to trigger sync after disconnect", error);
+    }
+  }, []);
+
   const cancelDisconnect = useCallback(() => {
     if (disconnecting) {
       return;
@@ -774,19 +803,7 @@ export default function ConfigScreen() {
 
     setDisconnecting(true);
     try {
-      await fetch(buildApiUrl(`/accounts/${disconnectingAccount.id}`), {
-        method: "DELETE",
-      });
-      await unregisterCalendarAccount(disconnectingAccount.id);
-      await removerEventosSincronizados(disconnectingAccount.provider, {
-        accountId: disconnectingAccount.id,
-      });
-      await removeCalendarAccount(disconnectingAccount.id);
-      try {
-        await triggerEventSync({ force: true });
-      } catch (error) {
-        console.warn("[config] failed to trigger sync after disconnect", error);
-      }
+      await disconnectAccount(disconnectingAccount);
       setFeedbackMessage("Conta desconectada e tarefas marcadas como removidas.");
     } catch (error: any) {
       console.error("[disconnect] erro", error);
@@ -795,7 +812,66 @@ export default function ConfigScreen() {
       setDisconnecting(false);
       setDisconnectingAccount(null);
     }
-  }, [disconnectingAccount]);
+  }, [disconnectingAccount, disconnectAccount]);
+
+  const handleReconnect = useCallback(
+    async (account: CalendarAccount) => {
+      if (connectingProvider) {
+        setErrorMessage("Finalize a conexão atual antes de tentar reconectar.");
+        return;
+      }
+
+      if (account.provider !== "google") {
+        return;
+      }
+
+      const clientId = account.clientId ?? resolveGoogleClientId();
+      if (!clientId) {
+        setErrorMessage(
+          "Configure os client IDs do Google em src/config/googleOAuth.ts antes de reconectar."
+        );
+        return;
+      }
+
+      setFeedbackMessage(null);
+      setErrorMessage(null);
+      setReconnectingAccountId(account.id);
+
+      try {
+        await disconnectAccount(account);
+
+        const context: AuthContext = {
+          provider: "google",
+          color: account.color,
+          clientId,
+        };
+
+        setAuthContext(context);
+        setConnectingProvider("google");
+
+        const result = await promptGoogleAsync({
+          useProxy,
+          windowName: "coach-google-auth",
+        });
+
+        if (result?.type !== "success") {
+          if (result?.type === "error" && typeof result.error === "string" && result.error.trim().length > 0) {
+            setErrorMessage(result.error);
+          }
+          setConnectingProvider(null);
+          setAuthContext(null);
+        }
+      } catch (error: any) {
+        console.error("[reconnect] erro ao reconectar conta", error);
+        setErrorMessage(error?.message ?? "Nao foi possivel reconectar a conta.");
+        setConnectingProvider(null);
+        setAuthContext(null);
+      } finally {
+        setReconnectingAccountId(null);
+      }
+    },
+    [connectingProvider, disconnectAccount, promptGoogleAsync, useProxy]
+  );
 
   const sortedAccounts = useMemo(() => sortAccounts(accounts), [accounts]);
 
@@ -830,6 +906,15 @@ export default function ConfigScreen() {
       const lastSyncText = account.lastSync
         ? new Date(account.lastSync).toLocaleString("pt-BR")
         : "Nunca";
+      const normalizedError = account.errorMessage?.toLowerCase() ?? "";
+      const shouldOfferReconnect =
+        account.provider === "google" &&
+        account.status === "error" &&
+        (normalizedError.includes("invalid_grant") ||
+          normalizedError.includes("expired") ||
+          normalizedError.includes("revoked"));
+      const reconnecting = reconnectingAccountId === account.id;
+      const showErrorMessage = account.status === "error" && account.errorMessage;
 
       return (
         <View key={account.id} style={[styles.accountCard, { borderLeftColor: account.color }]}>
@@ -854,11 +939,30 @@ export default function ConfigScreen() {
             <Text style={styles.lastSyncLabel}>{`Sincronizado em: ${lastSyncText}`}</Text>
           </View>
 
+          {showErrorMessage ? (
+            <Text style={styles.accountErrorText}>{account.errorMessage}</Text>
+          ) : null}
+
           <View style={styles.accountActions}>
+            {shouldOfferReconnect ? (
+              <TouchableOpacity
+                style={styles.reconnectButton}
+                onPress={() => handleReconnect(account)}
+                disabled={reconnecting || disconnecting}
+              >
+                {reconnecting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.reconnectButtonText}>Reconectar</Text>
+                )}
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={styles.disconnectButton}
               onPress={() => handleDisconnectRequest(account)}
-              disabled={disconnecting && disconnectingAccount?.id === account.id}
+              disabled={
+                (disconnecting && disconnectingAccount?.id === account.id) || reconnecting
+              }
             >
               {disconnecting && disconnectingAccount?.id === account.id ? (
                 <ActivityIndicator color="#fff" />
@@ -870,7 +974,13 @@ export default function ConfigScreen() {
         </View>
       );
     },
-    [disconnecting, disconnectingAccount, handleDisconnectRequest, outlookOAuthConfig]
+    [
+      disconnecting,
+      disconnectingAccount,
+      handleDisconnectRequest,
+      handleReconnect,
+      reconnectingAccountId,
+    ]
   );
 
   return (
@@ -1234,6 +1344,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 4,
   },
+  accountErrorText: {
+    color: "#e53935",
+    fontSize: 12,
+  },
   accountCategoryBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1271,6 +1385,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 8,
+  },
+  reconnectButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reconnectButtonText: {
+    color: "#fff",
+    fontWeight: "600",
   },
 
   disconnectButton: {
