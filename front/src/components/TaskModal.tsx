@@ -23,6 +23,7 @@ type Task = {
   dificuldade: string;
   tempoExecucao?: number;
   sentimentoInicio?: number | null;
+  sentimentoFim?: number | null;
   concluida?: boolean;
 };
 
@@ -288,6 +289,15 @@ export default function TaskModal({
 
     const idParaSalvar = modalMode === "clone" ? undefined : initialData?.id;
 
+    const cloneDefaults =
+      modalMode === "clone"
+        ? {
+            concluida: false,
+            sentimentoInicio: null,
+            sentimentoFim: null,
+          }
+        : {};
+
     await Promise.resolve(
       onSave({
         id: idParaSalvar,
@@ -297,6 +307,7 @@ export default function TaskModal({
         tipo: tipoNormalizado,
         dificuldade,
         tempoExecucao,
+        ...cloneDefaults,
       })
     );
     onClose();
