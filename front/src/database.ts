@@ -1,5 +1,8 @@
 import * as SQLite from "expo-sqlite";
-import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "./constants/calendarCategories";
+import {
+  DEFAULT_CALENDAR_CATEGORY,
+  getCalendarColorByType,
+} from "./constants/calendarCategories";
 import { CalendarProvider } from "./types/calendar";
 import { normalizeToIsoString } from "./utils/date";
 import { normalizarTipoTarefa } from "./utils/taskTypes";
@@ -391,7 +394,8 @@ const normalizarEvento = (ev: Evento): Evento => {
     (ev.googleId ? "google" : ev.outlookId ? "outlook" : ev.icsUid ? "ics" : "local");
   const accountId = ev.accountId ?? null;
   const status = ev.status ?? "ativo";
-  const cor = normalizeCalendarColor(ev.cor);
+  const tipo = sanitizeTipo(ev.tipo) || "Tarefa";
+  const cor = getCalendarColorByType(tipo, ev.cor);
   const tempoExecucao = sanitizeTempoExecucao(ev.tempoExecucao);
   const sentimentoInicio =
     ev.sentimentoInicio === undefined
@@ -409,8 +413,6 @@ const normalizarEvento = (ev: Evento): Evento => {
   } else {
     integrationDate = normalizeToIsoString(ev.integrationDate) ?? null;
   }
-  const tipo = sanitizeTipo(ev.tipo) || "Tarefa";
-
   return {
     ...ev,
     tipo,

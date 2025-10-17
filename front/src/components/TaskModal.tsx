@@ -13,10 +13,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 import { normalizarTipoTarefa } from "../utils/taskTypes";
-import {
-  CALENDAR_CATEGORIES,
-  DEFAULT_CALENDAR_CATEGORY,
-} from "../constants/calendarCategories";
+import { getCalendarColorByType } from "../constants/calendarCategories";
 
 type Task = {
   id?: number;
@@ -30,23 +27,6 @@ type Task = {
   sentimentoFim?: number | null;
   concluida?: boolean;
   cor?: string;
-};
-
-const obterCorPeloTipo = (tipo: string, corAtual?: string) => {
-  if (tipo) {
-    const categoria = CALENDAR_CATEGORIES.find(
-      (item) => item.label.toLowerCase() === tipo.toLowerCase()
-    );
-    if (categoria) {
-      return categoria.color;
-    }
-  }
-
-  if (corAtual && corAtual.trim()) {
-    return corAtual.trim().toLowerCase();
-  }
-
-  return DEFAULT_CALENDAR_CATEGORY.color;
 };
 
 interface TaskModalProps {
@@ -320,7 +300,7 @@ export default function TaskModal({
           }
         : {};
 
-    const corParaSalvar = obterCorPeloTipo(
+    const corParaSalvar = getCalendarColorByType(
       tipoNormalizado,
       initialData?.cor
     );

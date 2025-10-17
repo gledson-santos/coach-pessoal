@@ -40,6 +40,39 @@ export const findCalendarCategoryByColor = (color?: string | null) => {
   );
 };
 
+export const findCalendarCategoryByType = (type?: string | null) => {
+  if (typeof type !== "string") {
+    return null;
+  }
+
+  const normalized = type.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return (
+    CALENDAR_CATEGORIES.find(
+      (category) => category.label.trim().toLowerCase() === normalized
+    ) ?? null
+  );
+};
+
+export const getCalendarColorByType = (
+  type?: string | null,
+  fallbackColor?: string | null
+) => {
+  const category = findCalendarCategoryByType(type);
+  if (category) {
+    return normalizeCalendarColor(category.color);
+  }
+
+  if (typeof fallbackColor === "string" && fallbackColor.trim().length > 0) {
+    return normalizeCalendarColor(fallbackColor);
+  }
+
+  return DEFAULT_CALENDAR_CATEGORY.color;
+};
+
 export const getCalendarCategoryLabel = (color?: string | null) => {
   const category = findCalendarCategoryByColor(color);
   return category ? category.label : "Agenda";
