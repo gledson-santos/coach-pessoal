@@ -29,6 +29,7 @@ import {
   setCalendarAccounts,
   subscribeCalendarAccounts,
   upsertCalendarAccount,
+  updateCalendarAccountStatus,
 } from "../services/calendarAccountsStore";
 import {
   initializeCalendarSyncEngine,
@@ -147,11 +148,32 @@ export default function ConfigScreen() {
   const [disconnectingAccount, setDisconnectingAccount] = useState<CalendarAccount | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [reconnectingAccountId, setReconnectingAccountId] = useState<string | null>(null);
+  const [debuggingAccountId, setDebuggingAccountId] = useState<string | null>(null);
   const [outlookOAuthConfig, setOutlookOAuthConfig] = useState<OutlookOAuthConfig>(() =>
     getOutlookOAuthConfig()
   );
   const [icsUrlInput, setIcsUrlInput] = useState("");
   const [icsLabelInput, setIcsLabelInput] = useState("");
+
+  const debugModeEnabled = useMemo(() => {
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      return true;
+    }
+    const env =
+      typeof globalThis !== "undefined" &&
+      (globalThis as any)?.process &&
+      (globalThis as any).process.env;
+    if (env) {
+      const flag =
+        env.EXPO_PUBLIC_ENABLE_CALENDAR_DEBUG ??
+        env.EXPO_PUBLIC_SHOW_CALENDAR_DEBUG ??
+        env.EXPO_PUBLIC_FORCE_INVALID_GRANT_TEST;
+      if (typeof flag === "string") {
+        return flag === "1" || flag.toLowerCase() === "true";
+      }
+    }
+    return false;
+  }, []);
 
   const providerOptions = useMemo<ProviderOption[]>(
     () => [
@@ -873,6 +895,38 @@ export default function ConfigScreen() {
     [connectingProvider, disconnectAccount, promptGoogleAsync, useProxy]
   );
 
+  const handleForceInvalidGrant = useCallback(
+    async (account: CalendarAccount) => {
+      if (debuggingAccountId) {
+        return;
+      }
+
+      setFeedbackMessage(null);
+      setErrorMessage(null);
+      setDebuggingAccountId(account.id);
+
+      try {
+        await updateCalendarAccountStatus(account.id, {
+          status: "error",
+          errorMessage: "invalid_grant (simulado para teste)",
+          accessToken: null,
+          accessTokenExpiresAt: null,
+        });
+        setFeedbackMessage(
+          `Erro invalid_grant simulado para ${account.email}. Use o botao Reconectar para testar.`
+        );
+      } catch (error: any) {
+        console.error("[debug] falha ao simular invalid_grant", error);
+        setErrorMessage(
+          error?.message ?? "Nao foi possivel simular o erro invalid_grant para esta conta."
+        );
+      } finally {
+        setDebuggingAccountId(null);
+      }
+    },
+    [debuggingAccountId, updateCalendarAccountStatus]
+  );
+
   const sortedAccounts = useMemo(() => sortAccounts(accounts), [accounts]);
 
   const renderAccountCard = useCallback(
@@ -914,6 +968,7 @@ export default function ConfigScreen() {
           normalizedError.includes("expired") ||
           normalizedError.includes("revoked"));
       const reconnecting = reconnectingAccountId === account.id;
+      const debugging = debuggingAccountId === account.id;
       const showErrorMessage = account.status === "error" && account.errorMessage;
 
       return (
@@ -944,6 +999,24 @@ export default function ConfigScreen() {
           ) : null}
 
           <View style={styles.accountActions}>
+            {debugModeEnabled && account.provider === "google" ? (
+              <TouchableOpacity
+                style={styles.debugButton}
+                onPress={() => handleForceInvalidGrant(account)}
+                disabled={
+                  debugging ||
+                  reconnecting ||
+                  disconnecting ||
+                  (disconnecting && disconnectingAccount?.id === account.id)
+                }
+              >
+                {debugging ? (
+                  <ActivityIndicator color="#1f2937" />
+                ) : (
+                  <Text style={styles.debugButtonText}>Simular invalid_grant</Text>
+                )}
+              </TouchableOpacity>
+            ) : null}
             {shouldOfferReconnect ? (
               <TouchableOpacity
                 style={styles.reconnectButton}
@@ -975,9 +1048,12 @@ export default function ConfigScreen() {
       );
     },
     [
+      debugModeEnabled,
+      debuggingAccountId,
       disconnecting,
       disconnectingAccount,
       handleDisconnectRequest,
+      handleForceInvalidGrant,
       handleReconnect,
       reconnectingAccountId,
     ]
@@ -1385,6 +1461,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 8,
+  },
+  debugButton: {
+    backgroundColor: "#e2e8f0",
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  debugButtonText: {
+    color: "#1f2937",
+    fontWeight: "600",
   },
   reconnectButton: {
     backgroundColor: "#2563eb",
