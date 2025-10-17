@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "./constants/calendarCategories";
 import { CalendarProvider } from "./types/calendar";
+import { normalizarTipoTarefa } from "./utils/taskTypes";
 
 export type Evento = {
   id?: number;
@@ -346,12 +347,30 @@ const calcularFim = (inicioIso: string, tempoEmMinutos: number) => {
   return fim.toISOString();
 };
 
+const sanitizeTipo = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const normalized = normalizarTipoTarefa(trimmed);
+  if (normalized) {
+    return normalized;
+  }
+
+  return trimmed;
+};
+
 const mapRowToEvento = (row: any): Evento => ({
   id: row.id,
   titulo: row.titulo,
   observacao: row.observacao ?? undefined,
   data: row.data ?? undefined,
-  tipo: row.tipo,
+  tipo: sanitizeTipo(row.tipo),
   dificuldade: row.dificuldade,
   tempoExecucao: sanitizeTempoExecucao(row.tempoExecucao),
   inicio: row.inicio ?? undefined,
@@ -404,8 +423,11 @@ const normalizarEvento = (ev: Evento): Evento => {
   } else {
     integrationDate = sanitizeIsoString(ev.integrationDate) ?? null;
   }
+  const tipo = sanitizeTipo(ev.tipo) || "Tarefa";
+
   return {
     ...ev,
+    tipo,
     provider,
     accountId,
     status,

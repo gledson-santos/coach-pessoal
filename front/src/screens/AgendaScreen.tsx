@@ -13,6 +13,7 @@ import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
 import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
 import { triggerEventSync } from "../services/eventSync";
 import { filterVisibleEvents } from "../utils/eventFilters";
+import { normalizarTipoTarefa } from "../utils/taskTypes";
 
 type EventoAgenda = Evento;
 
@@ -68,7 +69,11 @@ export default function AgendaScreen() {
   const carregarEventos = useCallback(async () => {
     const lista = await listarEventos();
     const visiveis = filterVisibleEvents(lista);
-    setEventos(visiveis as EventoAgenda[]);
+    const normalizados = visiveis.map((evento) => ({
+      ...evento,
+      tipo: normalizarTipoTarefa(evento.tipo) || evento.tipo || "",
+    }));
+    setEventos(normalizados as EventoAgenda[]);
   }, []);
   const [modoSemana, setModoSemana] = useState(false);
   const [larguraTimeline, setLarguraTimeline] = useState(0);
@@ -295,7 +300,10 @@ export default function AgendaScreen() {
   const abrirModalEditar = (tarefa: any) => {
     if (tarefa) {
       const { startMin, endMin, conflict, overlaps, uniqueKey, columnIndex, maxColumns, ...limpo } = tarefa;
-      setTarefaSelecionada(limpo);
+      setTarefaSelecionada({
+        ...limpo,
+        tipo: normalizarTipoTarefa(limpo.tipo) || limpo.tipo || "",
+      });
     } else {
       setTarefaSelecionada(null);
     }
