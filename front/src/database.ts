@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "./constants/calendarCategories";
 import { CalendarProvider } from "./types/calendar";
+import { normalizeToIsoString } from "./utils/date";
 import { normalizarTipoTarefa } from "./utils/taskTypes";
 
 export type Evento = {
@@ -38,21 +39,6 @@ export type Evento = {
 };
 
 const DEFAULT_TEMPO_EXECUCAO = 15;
-
-const sanitizeIsoString = (value: unknown): string | null => {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed.toISOString();
-};
 
 const sanitizeTempoExecucao = (
   value: unknown,
@@ -391,7 +377,7 @@ const mapRowToEvento = (row: any): Evento => ({
   concluida: sanitizeBoolean(row.concluida, false),
   pomodoroStage: sanitizePomodoroStage(row.pomodoroStage),
   pomodoroCurrentCycle: sanitizeNonNegativeInteger(row.pomodoroCurrentCycle),
-  pomodoroTargetTimestamp: sanitizeIsoString(row.pomodoroTargetTimestamp),
+  pomodoroTargetTimestamp: normalizeToIsoString(row.pomodoroTargetTimestamp),
   pomodoroRemainingMs: sanitizeNonNegativeInteger(row.pomodoroRemainingMs),
   pomodoroPaused: sanitizeBoolean(row.pomodoroPaused, false),
   pomodoroAwaitingAction: sanitizeBoolean(row.pomodoroAwaitingAction, false),
@@ -421,7 +407,7 @@ const normalizarEvento = (ev: Evento): Evento => {
   } else if (ev.integrationDate === null) {
     integrationDate = null;
   } else {
-    integrationDate = sanitizeIsoString(ev.integrationDate) ?? null;
+    integrationDate = normalizeToIsoString(ev.integrationDate) ?? null;
   }
   const tipo = sanitizeTipo(ev.tipo) || "Tarefa";
 
@@ -667,7 +653,7 @@ export async function atualizarPomodoroEstado(
     const target =
       estado.targetTimestamp === null
         ? null
-        : sanitizeIsoString(estado.targetTimestamp);
+        : normalizeToIsoString(estado.targetTimestamp);
     columns.push("pomodoroTargetTimestamp = ?");
     values.push(target);
   }
