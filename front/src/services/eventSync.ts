@@ -8,6 +8,7 @@ import {
   Evento,
 } from "../database";
 import { buildApiUrl } from "../config/api";
+import { normalizarTipoTarefa } from "../utils/taskTypes";
 
 const STORAGE_KEY = "@coach/eventSync";
 const MAX_EVENTS_PER_BATCH = 50;
@@ -222,7 +223,7 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
     title: evento.titulo,
     notes: sanitizeOptionalString(evento.observacao),
     date: sanitizeIso(evento.data) ?? sanitizeOptionalString(evento.data),
-    type: evento.tipo,
+    type: normalizarTipoTarefa(evento.tipo) || evento.tipo,
     difficulty: evento.dificuldade,
     duration,
     start: sanitizeIso(evento.inicio) ?? sanitizeOptionalString(evento.inicio),
@@ -252,7 +253,8 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
       ? Math.max(1, Math.round(payload.duration))
       : 15;
   const title = sanitizeOptionalString(payload.title) ?? "Evento";
-  const type = sanitizeOptionalString(payload.type) ?? "Tarefa";
+  const rawType = sanitizeOptionalString(payload.type);
+  const type = normalizarTipoTarefa(rawType) || "Tarefa";
   const difficulty = sanitizeOptionalString(payload.difficulty) ?? "Media";
   const provider = sanitizeOptionalString(payload.provider) ?? "local";
   const status = sanitizeOptionalString(payload.status);

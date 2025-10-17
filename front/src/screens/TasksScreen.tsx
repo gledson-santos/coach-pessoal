@@ -19,6 +19,7 @@ import {
   subscribeEventoChanges,
 } from "../database";
 import { filterVisibleEvents } from "../utils/eventFilters";
+import { normalizarTipoTarefa } from "../utils/taskTypes";
 import { usePomodoro } from "../pomodoro/PomodoroProvider";
 type Task = Evento;
 type DisplayTask = Task & {
@@ -248,7 +249,11 @@ export default function TasksScreen() {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
     const ativos = visiveis.filter((evento) => !evento.concluida);
-    setTasks(ativos as Task[]);
+    const normalizados = ativos.map((evento) => ({
+      ...evento,
+      tipo: normalizarTipoTarefa(evento.tipo) || evento.tipo || "",
+    }));
+    setTasks(normalizados as Task[]);
   }, []);
 
   useEffect(() => {
@@ -377,7 +382,10 @@ export default function TasksScreen() {
     setModalVisible(true);
   };
   const abrirEdicao = (task: Task) => {
-    setSelectedTask(task);
+    setSelectedTask({
+      ...task,
+      tipo: normalizarTipoTarefa(task.tipo) || task.tipo || "",
+    });
     setModalVisible(true);
   };
   const handleSave = async (task: Task) => {
