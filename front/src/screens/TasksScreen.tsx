@@ -4,7 +4,12 @@ import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "rea
 
 import { Ionicons } from "@expo/vector-icons";
 import TaskModal from "../components/TaskModal";
-import { DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel, normalizeCalendarColor } from "../constants/calendarCategories";
+import {
+  DEFAULT_CALENDAR_CATEGORY,
+  getCalendarCategoryLabel,
+  normalizeCalendarColor,
+  getCalendarColorByType,
+} from "../constants/calendarCategories";
 
 import { deleteProviderEvent } from "../services/calendarProviderActions";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
@@ -243,16 +248,24 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [modalMode, setModalMode] = useState<"create" | "edit" | "clone">(
+    "create"
+  );
   const [activeFilter, setActiveFilter] = useState<FilterKey>("hoje");
   const { startTask } = usePomodoro();
   const carregarTarefas = useCallback(async () => {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
     const ativos = visiveis.filter((evento) => !evento.concluida);
-    const normalizados = ativos.map((evento) => ({
-      ...evento,
-      tipo: normalizarTipoTarefa(evento.tipo) || evento.tipo || "",
-    }));
+    const normalizados = ativos.map((evento) => {
+      const tipoNormalizado = normalizarTipoTarefa(evento.tipo) || evento.tipo || "";
+      const corNormalizada = getCalendarColorByType(tipoNormalizado, evento.cor);
+      return {
+        ...evento,
+        tipo: tipoNormalizado,
+        cor: corNormalizada,
+      };
+    });
     setTasks(normalizados as Task[]);
   }, []);
 
@@ -379,6 +392,7 @@ export default function TasksScreen() {
   const hasTasks = displayedTasks.length > 0;
   const abrirNovaTarefa = () => {
     setSelectedTask(null);
+    setModalMode("create");
     setModalVisible(true);
   };
   const abrirEdicao = (task: Task) => {
@@ -386,6 +400,7 @@ export default function TasksScreen() {
       ...task,
       tipo: normalizarTipoTarefa(task.tipo) || task.tipo || "",
     });
+    setModalMode("edit");
     setModalVisible(true);
   };
   const handleSave = async (task: Task) => {
@@ -516,11 +531,19 @@ export default function TasksScreen() {
 
       <TaskModal
         visible={modalVisible}
-        onClose={() => setModalVisible(false)}
+        onClose={() => {
+          setModalVisible(false);
+          setSelectedTask(null);
+          setModalMode("create");
+        }}
         onSave={handleSave}
         onDelete={(id) => handleDelete(id)}
         initialData={selectedTask}
         onStart={handleStartTask}
+        mode={modalMode}
+        onClone={() => {
+          setModalMode("clone");
+        }}
       />
     </View>
   );

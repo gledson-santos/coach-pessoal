@@ -10,6 +10,7 @@ import {
 import { buildApiUrl } from "../config/api";
 import { normalizeToIsoString } from "../utils/date";
 import { normalizarTipoTarefa } from "../utils/taskTypes";
+import { getCalendarColorByType } from "../constants/calendarCategories";
 
 const STORAGE_KEY = "@coach/eventSync";
 const MAX_EVENTS_PER_BATCH = 50;
@@ -201,6 +202,8 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
   }
   const updatedAt = normalizeToIsoString(evento.updatedAt) ?? new Date().toISOString();
   const createdAt = normalizeToIsoString(evento.createdAt) ?? updatedAt;
+  const typeNormalized = normalizarTipoTarefa(evento.tipo) || evento.tipo;
+  const colorNormalized = getCalendarColorByType(typeNormalized, evento.cor);
   const duration =
     typeof evento.tempoExecucao === "number" && Number.isFinite(evento.tempoExecucao)
       ? Math.max(1, Math.round(evento.tempoExecucao))
@@ -217,12 +220,12 @@ const mapLocalToPayload = (evento: Evento): SyncEventPayload | null => {
     title: evento.titulo,
     notes: sanitizeOptionalString(evento.observacao),
     date: normalizeToIsoString(evento.data) ?? sanitizeOptionalString(evento.data),
-    type: normalizarTipoTarefa(evento.tipo) || evento.tipo,
+    type: typeNormalized,
     difficulty: evento.dificuldade,
     duration,
     start: normalizeToIsoString(evento.inicio) ?? sanitizeOptionalString(evento.inicio),
     end: normalizeToIsoString(evento.fim) ?? sanitizeOptionalString(evento.fim),
-    color: sanitizeOptionalString(evento.cor),
+    color: colorNormalized,
     status: sanitizeOptionalString(evento.status) ?? "ativo",
     provider,
     accountId,
@@ -249,6 +252,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
   const title = sanitizeOptionalString(payload.title) ?? "Evento";
   const rawType = sanitizeOptionalString(payload.type);
   const type = normalizarTipoTarefa(rawType) || "Tarefa";
+  const color = getCalendarColorByType(type, payload.color);
   const difficulty = sanitizeOptionalString(payload.difficulty) ?? "Media";
   const provider = sanitizeOptionalString(payload.provider) ?? "local";
   const status = sanitizeOptionalString(payload.status);
@@ -263,7 +267,7 @@ const mapRemoteToEvento = (payload: SyncEventPayload): Evento => {
     tempoExecucao: duration,
     inicio: payload.start ?? undefined,
     fim: payload.end ?? undefined,
-    cor: payload.color ?? undefined,
+    cor: color,
     status: status ?? undefined,
     provider: (provider as Evento["provider"]) ?? "local",
     accountId: accountId ?? null,

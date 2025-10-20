@@ -1,5 +1,8 @@
 import * as SQLite from "expo-sqlite";
-import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "./constants/calendarCategories";
+import {
+  DEFAULT_CALENDAR_CATEGORY,
+  getCalendarColorByType,
+} from "./constants/calendarCategories";
 import { CalendarProvider } from "./types/calendar";
 import { normalizeToIsoString } from "./utils/date";
 import { normalizarTipoTarefa } from "./utils/taskTypes";
@@ -351,39 +354,44 @@ const sanitizeTipo = (value: unknown): string => {
   return trimmed;
 };
 
-const mapRowToEvento = (row: any): Evento => ({
-  id: row.id,
-  titulo: row.titulo,
-  observacao: row.observacao ?? undefined,
-  data: row.data ?? undefined,
-  tipo: sanitizeTipo(row.tipo),
-  dificuldade: row.dificuldade,
-  tempoExecucao: sanitizeTempoExecucao(row.tempoExecucao),
-  inicio: row.inicio ?? undefined,
-  fim: row.fim ?? undefined,
-  cor: row.cor ?? undefined,
-  googleId: row.googleId ?? undefined,
-  outlookId: row.outlookId ?? undefined,
-  icsUid: row.icsUid ?? undefined,
-  updatedAt: row.updatedAt ?? undefined,
-  createdAt: row.createdAt ?? undefined,
-  syncId: row.syncId ?? undefined,
-  provider: (row.provider as CalendarProvider | "local") ?? "local",
-  accountId: row.accountId ?? null,
-  status: row.status ?? undefined,
-  integrationDate: row.integrationDate ?? undefined,
-  sentimentoInicio: sanitizeSentimento(row.sentimentoInicio),
-  sentimentoFim: sanitizeSentimento(row.sentimentoFim),
-  concluida: sanitizeBoolean(row.concluida, false),
-  pomodoroStage: sanitizePomodoroStage(row.pomodoroStage),
-  pomodoroCurrentCycle: sanitizeNonNegativeInteger(row.pomodoroCurrentCycle),
-  pomodoroTargetTimestamp: normalizeToIsoString(row.pomodoroTargetTimestamp),
-  pomodoroRemainingMs: sanitizeNonNegativeInteger(row.pomodoroRemainingMs),
-  pomodoroPaused: sanitizeBoolean(row.pomodoroPaused, false),
-  pomodoroAwaitingAction: sanitizeBoolean(row.pomodoroAwaitingAction, false),
-  pomodoroCycleDurations: sanitizeCycleDurations(row.pomodoroCycleDurations),
-  pomodoroBreakDuration: sanitizeNonNegativeInteger(row.pomodoroBreakDuration),
-});
+const mapRowToEvento = (row: any): Evento => {
+  const tipo = sanitizeTipo(row.tipo);
+  const cor = getCalendarColorByType(tipo, row.cor ?? undefined);
+
+  return {
+    id: row.id,
+    titulo: row.titulo,
+    observacao: row.observacao ?? undefined,
+    data: row.data ?? undefined,
+    tipo,
+    dificuldade: row.dificuldade,
+    tempoExecucao: sanitizeTempoExecucao(row.tempoExecucao),
+    inicio: row.inicio ?? undefined,
+    fim: row.fim ?? undefined,
+    cor,
+    googleId: row.googleId ?? undefined,
+    outlookId: row.outlookId ?? undefined,
+    icsUid: row.icsUid ?? undefined,
+    updatedAt: row.updatedAt ?? undefined,
+    createdAt: row.createdAt ?? undefined,
+    syncId: row.syncId ?? undefined,
+    provider: (row.provider as CalendarProvider | "local") ?? "local",
+    accountId: row.accountId ?? null,
+    status: row.status ?? undefined,
+    integrationDate: row.integrationDate ?? undefined,
+    sentimentoInicio: sanitizeSentimento(row.sentimentoInicio),
+    sentimentoFim: sanitizeSentimento(row.sentimentoFim),
+    concluida: sanitizeBoolean(row.concluida, false),
+    pomodoroStage: sanitizePomodoroStage(row.pomodoroStage),
+    pomodoroCurrentCycle: sanitizeNonNegativeInteger(row.pomodoroCurrentCycle),
+    pomodoroTargetTimestamp: normalizeToIsoString(row.pomodoroTargetTimestamp),
+    pomodoroRemainingMs: sanitizeNonNegativeInteger(row.pomodoroRemainingMs),
+    pomodoroPaused: sanitizeBoolean(row.pomodoroPaused, false),
+    pomodoroAwaitingAction: sanitizeBoolean(row.pomodoroAwaitingAction, false),
+    pomodoroCycleDurations: sanitizeCycleDurations(row.pomodoroCycleDurations),
+    pomodoroBreakDuration: sanitizeNonNegativeInteger(row.pomodoroBreakDuration),
+  };
+};
 
 const normalizarEvento = (ev: Evento): Evento => {
   const provider =
@@ -391,7 +399,8 @@ const normalizarEvento = (ev: Evento): Evento => {
     (ev.googleId ? "google" : ev.outlookId ? "outlook" : ev.icsUid ? "ics" : "local");
   const accountId = ev.accountId ?? null;
   const status = ev.status ?? "ativo";
-  const cor = normalizeCalendarColor(ev.cor);
+  const tipo = sanitizeTipo(ev.tipo) || "Tarefa";
+  const cor = getCalendarColorByType(tipo, ev.cor);
   const tempoExecucao = sanitizeTempoExecucao(ev.tempoExecucao);
   const sentimentoInicio =
     ev.sentimentoInicio === undefined
@@ -409,8 +418,6 @@ const normalizarEvento = (ev: Evento): Evento => {
   } else {
     integrationDate = normalizeToIsoString(ev.integrationDate) ?? null;
   }
-  const tipo = sanitizeTipo(ev.tipo) || "Tarefa";
-
   return {
     ...ev,
     tipo,
