@@ -354,39 +354,44 @@ const sanitizeTipo = (value: unknown): string => {
   return trimmed;
 };
 
-const mapRowToEvento = (row: any): Evento => ({
-  id: row.id,
-  titulo: row.titulo,
-  observacao: row.observacao ?? undefined,
-  data: row.data ?? undefined,
-  tipo: sanitizeTipo(row.tipo),
-  dificuldade: row.dificuldade,
-  tempoExecucao: sanitizeTempoExecucao(row.tempoExecucao),
-  inicio: row.inicio ?? undefined,
-  fim: row.fim ?? undefined,
-  cor: row.cor ?? undefined,
-  googleId: row.googleId ?? undefined,
-  outlookId: row.outlookId ?? undefined,
-  icsUid: row.icsUid ?? undefined,
-  updatedAt: row.updatedAt ?? undefined,
-  createdAt: row.createdAt ?? undefined,
-  syncId: row.syncId ?? undefined,
-  provider: (row.provider as CalendarProvider | "local") ?? "local",
-  accountId: row.accountId ?? null,
-  status: row.status ?? undefined,
-  integrationDate: row.integrationDate ?? undefined,
-  sentimentoInicio: sanitizeSentimento(row.sentimentoInicio),
-  sentimentoFim: sanitizeSentimento(row.sentimentoFim),
-  concluida: sanitizeBoolean(row.concluida, false),
-  pomodoroStage: sanitizePomodoroStage(row.pomodoroStage),
-  pomodoroCurrentCycle: sanitizeNonNegativeInteger(row.pomodoroCurrentCycle),
-  pomodoroTargetTimestamp: normalizeToIsoString(row.pomodoroTargetTimestamp),
-  pomodoroRemainingMs: sanitizeNonNegativeInteger(row.pomodoroRemainingMs),
-  pomodoroPaused: sanitizeBoolean(row.pomodoroPaused, false),
-  pomodoroAwaitingAction: sanitizeBoolean(row.pomodoroAwaitingAction, false),
-  pomodoroCycleDurations: sanitizeCycleDurations(row.pomodoroCycleDurations),
-  pomodoroBreakDuration: sanitizeNonNegativeInteger(row.pomodoroBreakDuration),
-});
+const mapRowToEvento = (row: any): Evento => {
+  const tipo = sanitizeTipo(row.tipo);
+  const cor = getCalendarColorByType(tipo, row.cor ?? undefined);
+
+  return {
+    id: row.id,
+    titulo: row.titulo,
+    observacao: row.observacao ?? undefined,
+    data: row.data ?? undefined,
+    tipo,
+    dificuldade: row.dificuldade,
+    tempoExecucao: sanitizeTempoExecucao(row.tempoExecucao),
+    inicio: row.inicio ?? undefined,
+    fim: row.fim ?? undefined,
+    cor,
+    googleId: row.googleId ?? undefined,
+    outlookId: row.outlookId ?? undefined,
+    icsUid: row.icsUid ?? undefined,
+    updatedAt: row.updatedAt ?? undefined,
+    createdAt: row.createdAt ?? undefined,
+    syncId: row.syncId ?? undefined,
+    provider: (row.provider as CalendarProvider | "local") ?? "local",
+    accountId: row.accountId ?? null,
+    status: row.status ?? undefined,
+    integrationDate: row.integrationDate ?? undefined,
+    sentimentoInicio: sanitizeSentimento(row.sentimentoInicio),
+    sentimentoFim: sanitizeSentimento(row.sentimentoFim),
+    concluida: sanitizeBoolean(row.concluida, false),
+    pomodoroStage: sanitizePomodoroStage(row.pomodoroStage),
+    pomodoroCurrentCycle: sanitizeNonNegativeInteger(row.pomodoroCurrentCycle),
+    pomodoroTargetTimestamp: normalizeToIsoString(row.pomodoroTargetTimestamp),
+    pomodoroRemainingMs: sanitizeNonNegativeInteger(row.pomodoroRemainingMs),
+    pomodoroPaused: sanitizeBoolean(row.pomodoroPaused, false),
+    pomodoroAwaitingAction: sanitizeBoolean(row.pomodoroAwaitingAction, false),
+    pomodoroCycleDurations: sanitizeCycleDurations(row.pomodoroCycleDurations),
+    pomodoroBreakDuration: sanitizeNonNegativeInteger(row.pomodoroBreakDuration),
+  };
+};
 
 const normalizarEvento = (ev: Evento): Evento => {
   const provider =

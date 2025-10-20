@@ -69,7 +69,7 @@ export const normalizeCalendarColor = (color?: string | null) => {
 
 export const findCalendarCategoryByColor = (color?: string | null) => {
   if (typeof color !== "string" || color.trim().length === 0) {
-    return DEFAULT_CALENDAR_CATEGORY;
+    return null;
   }
   const normalized = color.trim().toLowerCase();
   return (
@@ -108,21 +108,29 @@ export const findCalendarCategoryByType = (type?: string | null) => {
   );
 };
 
-export const getCalendarColorByType = (
+export const resolveCalendarCategory = (
   type?: string | null,
   fallbackColor?: string | null
-) => {
-  const category = findCalendarCategoryByType(type);
-  if (category) {
-    return normalizeCalendarColor(category.color);
+): CalendarCategory => {
+  const byType = findCalendarCategoryByType(type);
+  if (byType) {
+    return byType;
   }
 
   if (typeof fallbackColor === "string" && fallbackColor.trim().length > 0) {
-    return normalizeCalendarColor(fallbackColor);
+    const byColor = findCalendarCategoryByColor(fallbackColor);
+    if (byColor) {
+      return byColor;
+    }
   }
 
-  return DEFAULT_CALENDAR_CATEGORY.color;
+  return DEFAULT_CALENDAR_CATEGORY;
 };
+
+export const getCalendarColorByType = (
+  type?: string | null,
+  fallbackColor?: string | null
+) => normalizeCalendarColor(resolveCalendarCategory(type, fallbackColor).color);
 
 export const getCalendarCategoryLabel = (color?: string | null) => {
   const category = findCalendarCategoryByColor(color);

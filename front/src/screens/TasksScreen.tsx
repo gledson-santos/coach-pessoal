@@ -4,7 +4,12 @@ import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "rea
 
 import { Ionicons } from "@expo/vector-icons";
 import TaskModal from "../components/TaskModal";
-import { DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel, normalizeCalendarColor } from "../constants/calendarCategories";
+import {
+  DEFAULT_CALENDAR_CATEGORY,
+  getCalendarCategoryLabel,
+  normalizeCalendarColor,
+  getCalendarColorByType,
+} from "../constants/calendarCategories";
 
 import { deleteProviderEvent } from "../services/calendarProviderActions";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
@@ -252,10 +257,15 @@ export default function TasksScreen() {
     const eventos = await listarEventos();
     const visiveis = filterVisibleEvents(eventos);
     const ativos = visiveis.filter((evento) => !evento.concluida);
-    const normalizados = ativos.map((evento) => ({
-      ...evento,
-      tipo: normalizarTipoTarefa(evento.tipo) || evento.tipo || "",
-    }));
+    const normalizados = ativos.map((evento) => {
+      const tipoNormalizado = normalizarTipoTarefa(evento.tipo) || evento.tipo || "";
+      const corNormalizada = getCalendarColorByType(tipoNormalizado, evento.cor);
+      return {
+        ...evento,
+        tipo: tipoNormalizado,
+        cor: corNormalizada,
+      };
+    });
     setTasks(normalizados as Task[]);
   }, []);
 
