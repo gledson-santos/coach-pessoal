@@ -784,19 +784,35 @@ export default function ConfigScreen() {
   }, []);
 
   const disconnectAccount = useCallback(async (account: CalendarAccount) => {
-    const response = await fetch(buildApiUrl(`/accounts/${account.id}`), {
-      method: "DELETE",
-    });
+    let response: Response | null = null;
+    let warningMessage: string | null = null;
 
-    if (!response.ok) {
-      const payload = await response
-        .json()
-        .catch(() => ({ error: "Nao foi possivel desconectar a conta." }));
-      const message =
-        (payload?.error as string | undefined) ||
-        (payload?.message as string | undefined) ||
-        "Nao foi possivel desconectar a conta.";
-      throw new Error(message);
+    try {
+      response = await fetch(buildApiUrl(`/accounts/${account.id}`), {
+        method: "DELETE",
+      });
+    } catch (error) {
+      console.warn("[config] failed to reach API while disconnecting", error);
+      warningMessage =
+        "Nao foi possivel comunicar com a API. A conta foi removida apenas localmente.";
+    }
+
+    if (response) {
+      if (!response.ok) {
+        if (response.status === 404) {
+          warningMessage =
+            "A conta nao foi encontrada na API. Os dados locais foram removidos.";
+        } else {
+          const payload = await response
+            .json()
+            .catch(() => ({ error: "Nao foi possivel desconectar a conta." }));
+          const message =
+            (payload?.error as string | undefined) ||
+            (payload?.message as string | undefined) ||
+            "Nao foi possivel desconectar a conta.";
+          throw new Error(message);
+        }
+      }
     }
 
     await unregisterCalendarAccount(account.id);
@@ -809,6 +825,8 @@ export default function ConfigScreen() {
     } catch (error) {
       console.warn("[config] failed to trigger sync after disconnect", error);
     }
+
+    return warningMessage;
   }, []);
 
   const cancelDisconnect = useCallback(() => {
@@ -825,8 +843,12 @@ export default function ConfigScreen() {
 
     setDisconnecting(true);
     try {
-      await disconnectAccount(disconnectingAccount);
-      setFeedbackMessage("Conta desconectada e tarefas marcadas como removidas.");
+      const warning = await disconnectAccount(disconnectingAccount);
+      if (warning) {
+        setFeedbackMessage(`Conta desconectada localmente. ${warning}`);
+      } else {
+        setFeedbackMessage("Conta desconectada e tarefas marcadas como removidas.");
+      }
     } catch (error: any) {
       console.error("[disconnect] erro", error);
       setErrorMessage(error?.message ?? "Nao foi possivel desconectar a conta.");
