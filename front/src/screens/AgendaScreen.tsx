@@ -6,7 +6,13 @@ import {
   StyleSheet,
   ScrollView,
 } from "react-native";
-import { Evento, salvarEvento, listarEventos, atualizarEvento } from "../database";
+import {
+  Evento,
+  salvarEvento,
+  listarEventos,
+  atualizarEvento,
+  subscribeEventoChanges,
+} from "../database";
 import TaskModal from "../components/TaskModal";
 import { usePomodoro } from "../pomodoro/PomodoroProvider";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
@@ -100,6 +106,16 @@ export default function AgendaScreen() {
   const lastSyncMapRef = useRef<Map<string, string | null>>(new Map());
   useEffect(() => {
     carregarEventos();
+  }, [carregarEventos]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeEventoChanges(() => {
+      void carregarEventos();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [carregarEventos]);
   useEffect(() => {
     const lastSyncMap = lastSyncMapRef.current;
