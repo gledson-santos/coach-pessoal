@@ -13,6 +13,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 import { normalizarTipoTarefa } from "../utils/taskTypes";
+import { getCalendarColorByType } from "../constants/calendarCategories";
 
 type Task = {
   id?: number;
@@ -22,6 +23,10 @@ type Task = {
   tipo: string;
   dificuldade: string;
   tempoExecucao?: number;
+  sentimentoInicio?: number | null;
+  sentimentoFim?: number | null;
+  concluida?: boolean;
+  cor?: string;
 };
 
 interface TaskModalProps {
@@ -31,6 +36,8 @@ interface TaskModalProps {
   onDelete?: (id: number) => Promise<void> | void;
   initialData?: Task | null;
   onStart?: (task: Task, options: { sentimentoInicio: number }) => void;
+  mode?: "create" | "edit" | "clone";
+  onClone?: () => void;
 }
 
 const formatarDuracao = (minutos: number) => {
@@ -87,6 +94,8 @@ export default function TaskModal({
   onDelete,
   initialData,
   onStart,
+  mode,
+  onClone,
 }: TaskModalProps) {
   const [titulo, setTitulo] = useState("");
   const [observacao, setObservacao] = useState("");
@@ -109,24 +118,33 @@ export default function TaskModal({
   });
   const dataInputRef = useRef<any>(null);
 
+  const modalMode = mode ?? (initialData ? "edit" : "create");
+  const estaConcluida = Boolean(initialData?.concluida);
+  const emModoVisualizacao = estaConcluida && modalMode !== "clone";
+  const camposDesabilitados = emModoVisualizacao;
+
   useEffect(() => {
     if (initialData) {
+      const tipoNormalizado = normalizarTipoTarefa(initialData.tipo);
+      const dataInicial = modalMode === "clone" ? "" : initialData.data || "";
       setTitulo(initialData.titulo || "");
       setObservacao(initialData.observacao || "");
-      setData(initialData.data || "");
-      setTipo(normalizarTipoTarefa(initialData.tipo));
+      setData(dataInicial);
+      setTipo(tipoNormalizado);
       setDificuldade(initialData.dificuldade || "");
       setTempoExecucao(initialData.tempoExecucao ?? 15);
       setSentimentoInicio(
-        typeof initialData.sentimentoInicio === "number"
+        modalMode === "clone"
+          ? null
+          : typeof initialData.sentimentoInicio === "number"
           ? initialData.sentimentoInicio
           : null
       );
       setDadosOriginais({
         titulo: initialData.titulo || "",
         observacao: initialData.observacao || "",
-        data: initialData.data || "",
-        tipo: normalizarTipoTarefa(initialData.tipo),
+        data: dataInicial,
+        tipo: tipoNormalizado,
         dificuldade: initialData.dificuldade || "",
         tempoExecucao: initialData.tempoExecucao ?? 15,
       });
@@ -151,12 +169,14 @@ export default function TaskModal({
     setMostrarDuracoes(false);
     setMostrarModalInicio(false);
     setTextoConfirmacao("");
-    setSentimentoInicio(
-      initialData && typeof initialData.sentimentoInicio === "number"
-        ? initialData.sentimentoInicio
-        : null
-    );
-  }, [initialData, visible]);
+  }, [initialData, visible, modalMode]);
+
+  useEffect(() => {
+    if (camposDesabilitados) {
+      setMostrarDatePicker(false);
+      setMostrarDuracoes(false);
+    }
+  }, [camposDesabilitados]);
 
   const dataSelecionada = data
     ? formatarData(data)
@@ -252,7 +272,10 @@ export default function TaskModal({
     [titulo, tipo, dificuldade, tempoExecucao]
   );
 
-  const podeSalvar = camposObrigatoriosPreenchidos && houveAlteracao;
+  const permiteSalvarSemAlteracao = modalMode === "clone" || !initialData;
+  const podeSalvar =
+    camposObrigatoriosPreenchidos &&
+    (permiteSalvarSemAlteracao || houveAlteracao);
 
   const salvar = async () => {
     if (!camposObrigatoriosPreenchidos) {
@@ -260,21 +283,39 @@ export default function TaskModal({
       return;
     }
 
-    if (!houveAlteracao) {
+    if (!permiteSalvarSemAlteracao && !houveAlteracao) {
       alert("Nenhuma alteração foi realizada.");
       return;
     }
     const tipoNormalizado = normalizarTipoTarefa(tipo);
 
+    const idParaSalvar = modalMode === "clone" ? undefined : initialData?.id;
+
+    const cloneDefaults =
+      modalMode === "clone"
+        ? {
+            concluida: false,
+            sentimentoInicio: null,
+            sentimentoFim: null,
+          }
+        : {};
+
+    const corParaSalvar =
+      modalMode === "clone"
+        ? getCalendarColorByType(tipoNormalizado)
+        : getCalendarColorByType(tipoNormalizado, initialData?.cor);
+
     await Promise.resolve(
       onSave({
-        id: initialData?.id,
+        id: idParaSalvar,
         titulo,
         observacao,
         data,
         tipo: tipoNormalizado,
         dificuldade,
         tempoExecucao,
+        cor: corParaSalvar,
+        ...cloneDefaults,
       })
     );
     onClose();
@@ -398,12 +439,39 @@ export default function TaskModal({
     onClose();
   };
 
+  const headerTitle =
+    modalMode === "clone"
+      ? "Clonar Tarefa"
+      : modalMode === "create"
+      ? "Nova Tarefa"
+      : "";
+
+  const mostrarBotaoExcluir =
+    modalMode === "edit" && Boolean(initialData?.id && onDelete);
+  const mostrarBotaoIniciar =
+    !emModoVisualizacao && modalMode !== "clone" && Boolean(onStart);
+  const mostrarBotaoPrincipal =
+    emModoVisualizacao ? Boolean(onClone) : true;
+  const botaoPrincipalDesabilitado = emModoVisualizacao ? false : !podeSalvar;
+  const botaoPrincipalAcao = emModoVisualizacao
+    ? () => {
+        if (onClone) {
+          onClone();
+        }
+      }
+    : salvar;
+  const botaoPrincipalTexto = emModoVisualizacao
+    ? "Clonar"
+    : modalMode === "clone"
+    ? "Clonar"
+    : "Salvar";
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.modal}>
           <View style={styles.header}>
-            {initialData ? (
+            {modalMode !== "create" ? (
               <TouchableOpacity
                 onPress={onClose}
                 style={styles.backButton}
@@ -411,27 +479,28 @@ export default function TaskModal({
               >
                 <Text style={styles.backButtonText}>←</Text>
               </TouchableOpacity>
-            ) : (
-              <Text style={styles.titulo}>Nova Tarefa</Text>
-            )}
+            ) : null}
+            {headerTitle ? <Text style={styles.titulo}>{headerTitle}</Text> : null}
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>Titulo</Text>
             <TextInput
               placeholder="Titulo (obrigatorio)"
-              style={styles.input}
+              style={[styles.input, camposDesabilitados && styles.inputDisabled]}
               value={titulo}
               onChangeText={setTitulo}
+              editable={!camposDesabilitados}
             />
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>Data de Execução</Text>
             <TouchableOpacity
-              style={styles.dataDisplay}
+              style={[styles.dataDisplay, camposDesabilitados && styles.inputDisabled]}
               onPress={abrirSeletorData}
               activeOpacity={0.7}
+              disabled={camposDesabilitados}
             >
               <Text style={styles.dataValue}>{dataSelecionada}</Text>
               {Platform.OS === "web" && (
@@ -447,8 +516,9 @@ export default function TaskModal({
                     left: 0,
                     width: "100%",
                     height: "100%",
-                    cursor: "pointer",
+                    cursor: camposDesabilitados ? "not-allowed" : "pointer",
                   }}
+                  disabled={camposDesabilitados}
                 />
               )}
             </TouchableOpacity>
@@ -469,6 +539,7 @@ export default function TaskModal({
                   <View style={styles.iosPickerActions}>
                     <TouchableOpacity
                       onPress={() => setMostrarDatePicker(false)}
+                      disabled={camposDesabilitados}
                     >
                       <Text style={styles.iosPickerDone}>Concluir</Text>
                     </TouchableOpacity>
@@ -489,10 +560,12 @@ export default function TaskModal({
                   padding: 10,
                   borderRadius: 6,
                   border: "1px solid #ddd",
-                  backgroundColor: "#fff",
+                  backgroundColor: camposDesabilitados ? "#f0f0f0" : "#fff",
                   fontSize: 14,
-                  cursor: "pointer",
+                  cursor: camposDesabilitados ? "not-allowed" : "pointer",
+                  color: camposDesabilitados ? "#777" : "#000",
                 }}
+                disabled={camposDesabilitados}
               >
                 {DURACOES.map((opcao) => (
                   <option key={opcao.value} value={opcao.value}>
@@ -503,9 +576,10 @@ export default function TaskModal({
             ) : (
               <View style={styles.selectWrapper}>
                 <TouchableOpacity
-                  style={styles.selectInput}
+                  style={[styles.selectInput, camposDesabilitados && styles.inputDisabled]}
                   activeOpacity={0.7}
                   onPress={() => setMostrarDuracoes((valor) => !valor)}
+                  disabled={camposDesabilitados}
                 >
                   <Text>{duracaoSelecionada}</Text>
                 </TouchableOpacity>
@@ -523,6 +597,7 @@ export default function TaskModal({
                               ativo && styles.dropdownOptionSelected,
                             ]}
                             onPress={() => selecionarDuracao(opcao.value)}
+                            disabled={camposDesabilitados}
                           >
                             <Text
                               style={
@@ -545,14 +620,24 @@ export default function TaskModal({
             <Text style={styles.label}>Tipo</Text>
             <View style={styles.row}>
               <TouchableOpacity
-                style={[styles.option, tipo === "Pessoal" && styles.selected]}
+                style={[
+                  styles.option,
+                  tipo === "Pessoal" && styles.selected,
+                  camposDesabilitados && styles.optionDisabled,
+                ]}
                 onPress={() => setTipo("Pessoal")}
+                disabled={camposDesabilitados}
               >
                 <Text>Pessoal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.option, tipo === "Trabalho" && styles.selected]}
+                style={[
+                  styles.option,
+                  tipo === "Trabalho" && styles.selected,
+                  camposDesabilitados && styles.optionDisabled,
+                ]}
                 onPress={() => setTipo("Trabalho")}
+                disabled={camposDesabilitados}
               >
                 <Text>Trabalho</Text>
               </TouchableOpacity>
@@ -568,8 +653,10 @@ export default function TaskModal({
                   style={[
                     styles.option,
                     dificuldade === nivel && styles.selected,
+                    camposDesabilitados && styles.optionDisabled,
                   ]}
                   onPress={() => setDificuldade(nivel)}
+                  disabled={camposDesabilitados}
                 >
                   <Text>{nivel}</Text>
                 </TouchableOpacity>
@@ -581,110 +668,117 @@ export default function TaskModal({
             <Text style={styles.label}>Observação</Text>
             <TextInput
               placeholder="Observação"
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, camposDesabilitados && styles.inputDisabled]}
               value={observacao}
               onChangeText={setObservacao}
               multiline
               textAlignVertical="top"
+              editable={!camposDesabilitados}
             />
           </View>
 
           <View style={styles.btnRow}>
-            {initialData && onDelete && (
+            {mostrarBotaoExcluir && (
               <TouchableOpacity style={styles.excluir} onPress={excluir}>
                 <Text style={styles.textoBotaoBranco}>Excluir</Text>
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={[styles.salvar, !podeSalvar && styles.salvarDesabilitado]}
-              onPress={salvar}
-              disabled={!podeSalvar}
-            >
-              <Text style={styles.textoBotaoBranco}>Salvar</Text>
-            </TouchableOpacity>
+            {mostrarBotaoPrincipal ? (
+              <TouchableOpacity
+                style={[styles.salvar, botaoPrincipalDesabilitado && styles.salvarDesabilitado]}
+                onPress={botaoPrincipalAcao}
+                disabled={botaoPrincipalDesabilitado}
+              >
+                <Text style={styles.textoBotaoBranco}>{botaoPrincipalTexto}</Text>
+              </TouchableOpacity>
+            ) : null}
 
-            <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
-              <Text style={styles.iniciarTexto}>Iniciar</Text>
-            </TouchableOpacity>
+            {mostrarBotaoIniciar && (
+              <TouchableOpacity style={styles.iniciar} onPress={iniciar}>
+                <Text style={styles.textoBotaoBranco}>Iniciar</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
 
-      <Modal visible={mostrarModalInicio} animationType="fade" transparent>
-        <View style={styles.overlay}>
-          <View style={styles.modalInicio}>
-            <Text style={styles.tituloModalInicio}>Vamos Começar!</Text>
-            <Text style={styles.textoModalInicio}>
-              Me confirme escrevendo o compromisso no formato:
-            </Text>
-            <Text style={styles.textoExemplo}>
-              "{fraseConfirmacao}"
-            </Text>
-            <View style={styles.sentimentoBloco}>
-              <Text style={styles.sentimentoTitulo}>Como você está se sentindo agora?</Text>
-              <View style={styles.sentimentoOpcoes}>
-                {[1, 2, 3, 4, 5].map((nivel) => {
-                  const ativo = sentimentoInicio === nivel;
-                  return (
-                    <TouchableOpacity
-                      key={nivel}
-                      style={[
-                        styles.sentimentoOpcao,
-                        ativo && styles.sentimentoOpcaoAtiva,
-                      ]}
-                      onPress={() => setSentimentoInicio(nivel)}
-                    >
-                      <Text
+      {mostrarBotaoIniciar ? (
+        <Modal visible={mostrarModalInicio} animationType="fade" transparent>
+          <View style={styles.overlay}>
+            <View style={styles.modalInicio}>
+              <Text style={styles.tituloModalInicio}>Vamos Começar!</Text>
+              <Text style={styles.textoModalInicio}>
+                Me confirme escrevendo o compromisso no formato:
+              </Text>
+              <Text style={styles.textoExemplo}>
+                "{fraseConfirmacao}"
+              </Text>
+              <View style={styles.sentimentoBloco}>
+                <Text style={styles.sentimentoTitulo}>Como você está se sentindo agora?</Text>
+                <View style={styles.sentimentoOpcoes}>
+                  {[1, 2, 3, 4, 5].map((nivel) => {
+                    const ativo = sentimentoInicio === nivel;
+                    return (
+                      <TouchableOpacity
+                        key={nivel}
                         style={[
-                          styles.sentimentoOpcaoTexto,
-                          ativo && styles.sentimentoOpcaoTextoAtivo,
+                          styles.sentimentoOpcao,
+                          ativo && styles.sentimentoOpcaoAtiva,
                         ]}
+                        onPress={() => setSentimentoInicio(nivel)}
                       >
-                        {nivel}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.sentimentoOpcaoTexto,
+                            ativo && styles.sentimentoOpcaoTextoAtivo,
+                          ]}
+                        >
+                          {nivel}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              <TextInput
+                placeholder="Digite o compromisso para iniciar"
+                style={[styles.input, styles.textArea, styles.inputConfirmacao]}
+                multiline
+                value={textoConfirmacao}
+                onChangeText={setTextoConfirmacao}
+              />
+              <View style={styles.btnRowInicio}>
+                <TouchableOpacity
+                  style={styles.cancelarInicio}
+                  onPress={() => {
+                    setMostrarModalInicio(false);
+                    setTextoConfirmacao("");
+                    setSentimentoInicio(
+                      initialData && typeof initialData.sentimentoInicio === "number"
+                        ? initialData.sentimentoInicio
+                        : null
+                    );
+                  }}
+                >
+                  <Text style={styles.cancelarInicioTexto}>Voltar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={
+                    podeConfirmarInicio
+                      ? styles.confirmarInicio
+                      : [styles.confirmarInicio, styles.confirmarInicioDesabilitado]
+                  }
+                  disabled={!podeConfirmarInicio}
+                  onPress={confirmarInicio}
+                >
+                  <Text style={styles.confirmarInicioTexto}>Começar</Text>
+                </TouchableOpacity>
               </View>
             </View>
-            <TextInput
-              placeholder="Digite o compromisso para iniciar"
-              style={[styles.input, styles.textArea, styles.inputConfirmacao]}
-              multiline
-              value={textoConfirmacao}
-              onChangeText={setTextoConfirmacao}
-            />
-            <View style={styles.btnRowInicio}>
-              <TouchableOpacity
-                style={styles.cancelarInicio}
-                onPress={() => {
-                  setMostrarModalInicio(false);
-                  setTextoConfirmacao("");
-                  setSentimentoInicio(
-                    initialData && typeof initialData.sentimentoInicio === "number"
-                      ? initialData.sentimentoInicio
-                      : null
-                  );
-                }}
-              >
-                <Text style={styles.cancelarInicioTexto}>Voltar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={
-                  podeConfirmarInicio
-                    ? styles.confirmarInicio
-                    : [styles.confirmarInicio, styles.confirmarInicioDesabilitado]
-                }
-                disabled={!podeConfirmarInicio}
-                onPress={confirmarInicio}
-              >
-                <Text style={styles.confirmarInicioTexto}>Começar</Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      ) : null}
     </Modal>
   );
 }
@@ -731,6 +825,10 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
     padding: 10,
     borderRadius: 6,
+  },
+  inputDisabled: {
+    backgroundColor: "#f0f0f0",
+    color: "#777",
   },
   textArea: {
     minHeight: 96,
@@ -816,6 +914,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#fff",
   },
+  optionDisabled: {
+    backgroundColor: "#f0f0f0",
+  },
   selected: {
     backgroundColor: "#e9c46a",
     borderColor: "#b2893f",
@@ -849,10 +950,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     flex: 1,
     alignItems: "center",
-  },
-  iniciarTexto: {
-    color: "#fff",
-    fontWeight: "600",
   },
   textoBotaoBranco: {
     color: "#fff",

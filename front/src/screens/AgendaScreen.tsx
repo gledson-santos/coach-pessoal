@@ -6,11 +6,21 @@ import {
   StyleSheet,
   ScrollView,
 } from "react-native";
-import { Evento, salvarEvento, listarEventos, atualizarEvento } from "../database";
+import {
+  Evento,
+  salvarEvento,
+  listarEventos,
+  atualizarEvento,
+  subscribeEventoChanges,
+} from "../database";
 import TaskModal from "../components/TaskModal";
 import { usePomodoro } from "../pomodoro/PomodoroProvider";
 import { subscribeCalendarAccounts } from "../services/calendarAccountsStore";
-import { DEFAULT_CALENDAR_CATEGORY, normalizeCalendarColor } from "../constants/calendarCategories";
+import {
+  DEFAULT_CALENDAR_CATEGORY,
+  normalizeCalendarColor,
+  getCalendarColorByType,
+} from "../constants/calendarCategories";
 import { triggerEventSync } from "../services/eventSync";
 import { filterVisibleEvents } from "../utils/eventFilters";
 import { normalizarTipoTarefa } from "../utils/taskTypes";
@@ -30,6 +40,7 @@ type EventoNormalizado = EventoAgenda & {
   uniqueKey: string;
   columnIndex: number;
   maxColumns: number;
+  overdue: boolean;
 };
 
 const horas = Array.from({ length: 24 }, (_, i) => i);
@@ -69,10 +80,15 @@ export default function AgendaScreen() {
   const carregarEventos = useCallback(async () => {
     const lista = await listarEventos();
     const visiveis = filterVisibleEvents(lista);
-    const normalizados = visiveis.map((evento) => ({
-      ...evento,
-      tipo: normalizarTipoTarefa(evento.tipo) || evento.tipo || "",
-    }));
+    const normalizados = visiveis.map((evento) => {
+      const tipoNormalizado = normalizarTipoTarefa(evento.tipo) || evento.tipo || "";
+      const corNormalizada = getCalendarColorByType(tipoNormalizado, evento.cor);
+      return {
+        ...evento,
+        tipo: tipoNormalizado,
+        cor: corNormalizada,
+      };
+    });
     setEventos(normalizados as EventoAgenda[]);
   }, []);
   const [modoSemana, setModoSemana] = useState(false);
@@ -80,6 +96,9 @@ export default function AgendaScreen() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [tarefaSelecionada, setTarefaSelecionada] = useState<any>(null);
+  const [modalMode, setModalMode] = useState<"create" | "edit" | "clone">(
+    "create"
+  );
 
 
   const weekHorizontalRef = useRef<ScrollView | null>(null);
@@ -87,6 +106,16 @@ export default function AgendaScreen() {
   const lastSyncMapRef = useRef<Map<string, string | null>>(new Map());
   useEffect(() => {
     carregarEventos();
+  }, [carregarEventos]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeEventoChanges(() => {
+      void carregarEventos();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [carregarEventos]);
   useEffect(() => {
     const lastSyncMap = lastSyncMapRef.current;
@@ -125,6 +154,8 @@ export default function AgendaScreen() {
   const eventosPorDia = useMemo(() => {
     const mapa = new Map<string, EventoNormalizado[]>();
 
+    const agora = Date.now();
+
     eventos.forEach((ev, index) => {
       const inicioDate = new Date(ev.inicio ?? "");
       if (Number.isNaN(inicioDate.getTime())) {
@@ -139,6 +170,19 @@ export default function AgendaScreen() {
         endMin = startMin + (ev.tempoExecucao ?? DURACAO_MINIMA);
       }
 
+      let horarioFimMs: number | null = null;
+      if (!Number.isNaN(fimDate.getTime())) {
+        horarioFimMs = fimDate.getTime();
+      } else if (!Number.isNaN(inicioDate.getTime())) {
+        const tempoExecucao =
+          typeof ev.tempoExecucao === "number" && Number.isFinite(ev.tempoExecucao)
+            ? ev.tempoExecucao
+            : DURACAO_MINIMA;
+        horarioFimMs = inicioDate.getTime() + tempoExecucao * 60 * 1000;
+      }
+
+      const overdue = Boolean(!ev.concluida && horarioFimMs !== null && horarioFimMs < agora);
+
       const normalizado: EventoNormalizado = {
         ...ev,
         startMin,
@@ -148,6 +192,7 @@ export default function AgendaScreen() {
         uniqueKey: `${ev.id ?? `idx-${index}`}`,
         columnIndex: 0,
         maxColumns: 1,
+        overdue,
       };
 
       const lista = mapa.get(chaveDia);
@@ -293,18 +338,31 @@ export default function AgendaScreen() {
   };
 
   const abrirModalNova = () => {
+    setModalMode("create");
     setTarefaSelecionada(null);
     setModalVisible(true);
   };
 
   const abrirModalEditar = (tarefa: any) => {
     if (tarefa) {
-      const { startMin, endMin, conflict, overlaps, uniqueKey, columnIndex, maxColumns, ...limpo } = tarefa;
+      const {
+        startMin,
+        endMin,
+        conflict,
+        overlaps,
+        uniqueKey,
+        columnIndex,
+        maxColumns,
+        overdue,
+        ...limpo
+      } = tarefa;
+      setModalMode("edit");
       setTarefaSelecionada({
         ...limpo,
         tipo: normalizarTipoTarefa(limpo.tipo) || limpo.tipo || "",
       });
     } else {
+      setModalMode("create");
       setTarefaSelecionada(null);
     }
     setModalVisible(true);
@@ -383,7 +441,7 @@ export default function AgendaScreen() {
                 const concluida = Boolean(ev.concluida);
                 const corBase = concluida
                   ? "#b0b0b0"
-                  : ev.conflict
+                  : ev.overdue
                   ? "#e63946"
                   : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                 const altura = Math.max(
@@ -557,7 +615,7 @@ export default function AgendaScreen() {
                         const concluida = Boolean(ev.concluida);
                         const corBase = concluida
                           ? "#b0b0b0"
-                          : ev.conflict
+                          : ev.overdue
                           ? "#e63946"
                           : normalizeCalendarColor(ev.cor ?? DEFAULT_CALENDAR_CATEGORY.color);
                         const altura = Math.max(
@@ -681,7 +739,11 @@ export default function AgendaScreen() {
 
       <TaskModal
         visible={modalVisible}
-        onClose={() => setModalVisible(false)}
+        onClose={() => {
+          setModalVisible(false);
+          setTarefaSelecionada(null);
+          setModalMode("create");
+        }}
         onSave={async (task) => {
           if (task.id) {
             await atualizarEvento(task);
@@ -699,6 +761,10 @@ export default function AgendaScreen() {
         onStart={async (task, options) => {
           await startTask(task as EventoAgenda, options);
           await carregarEventos();
+        }}
+        mode={modalMode}
+        onClone={() => {
+          setModalMode("clone");
         }}
       />
     </View>
