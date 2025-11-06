@@ -404,21 +404,38 @@ export default function TasksScreen() {
     setModalVisible(true);
   };
   const handleSave = async (task: Task) => {
-    const merged: Task = {
-      ...selectedTask,
-      ...task,
-      googleId: task.googleId ?? selectedTask?.googleId,
-      outlookId: task.outlookId ?? selectedTask?.outlookId,
-      provider: task.provider ?? selectedTask?.provider,
-      accountId: task.accountId ?? selectedTask?.accountId ?? null,
-      cor: task.cor ?? selectedTask?.cor ?? DEFAULT_CALENDAR_CATEGORY.color,
-      status: task.status ?? selectedTask?.status ?? "ativo",
+    const isEditingExisting = Boolean(task.id);
+    let payload: Task;
+
+    if (isEditingExisting) {
+      payload = {
+        ...selectedTask,
+        ...task,
+        googleId: task.googleId ?? selectedTask?.googleId,
+        outlookId: task.outlookId ?? selectedTask?.outlookId,
+        provider: task.provider ?? selectedTask?.provider,
+        accountId: task.accountId ?? selectedTask?.accountId ?? null,
+      };
+    } else {
+      payload = {
+        ...task,
+        googleId: task.googleId,
+        outlookId: task.outlookId,
+        provider: task.provider,
+        accountId: task.accountId ?? null,
+      };
+    }
+
+    payload = {
+      ...payload,
+      cor: payload.cor ?? DEFAULT_CALENDAR_CATEGORY.color,
+      status: payload.status ?? "ativo",
     };
 
-    if (merged.id) {
-      await atualizarEvento(merged);
+    if (payload.id) {
+      await atualizarEvento(payload);
     } else {
-      await salvarEvento(merged);
+      await salvarEvento(payload);
     }
     await carregarTarefas();
     try {
