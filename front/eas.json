@@ -1,0 +1,38 @@
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "ios":    { "simulator": true }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview"
+    },
+    "production": {
+      "channel": "production",
+      "ios": {
+        "image": "latest",
+        "simulator": false
+      },
+      "android": {
+        "image": "latest",
+        "gradleCommand": ":app:bundleRelease" 
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "production"
+      },
+      "ios": {
+        "automaticRelease": false
+      }
+    }
+  }
+}

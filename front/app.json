@@ -1,18 +1,52 @@
 {
-  "plugins": [
-    "expo-sqlite",
-    "expo-asset"
-  ],
-  "extra": {
-    "eas": {
-      "projectId": "e9098e67-678c-4439-87ff-74ce1d298597"
-    }
-  },
-  "owner": "gledsonsantos",
-  "slug": "pessoal-coach",
-  "name": "Coach Pessoal",
-  "runtimeVersion": { "policy": "sdkVersion" },
+  "expo": {
+    "name": "Coach Pessoal",
+    "slug": "pessoal-coach",
+    "owner": "gledsonsantos",
+
+    "scheme": "coachpessoal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+
+    "icon": "./assets/icon.png",
+
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+
+    "ios": {
+      "bundleIdentifier": "com.gledsonsantos.coachpessoal",
+      "buildNumber": "1"
+    },
+
+    "android": {
+      "package": "com.gledsonsantos.coachpessoal",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      }
+    },
+
+    "plugins": [
+      "expo-sqlite",
+      "expo-asset"
+    ],
+
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+
     "updates": {
       "enabled": true
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "e9098e67-678c-4439-87ff-74ce1d298597"
+      }
     }
+  }
 }
