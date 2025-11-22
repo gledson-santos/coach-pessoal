@@ -33,20 +33,7 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Login Expo
-        run: npx expo login --token $EXPO_TOKEN
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
-      # Se você já está usando EAS (recomendado)
       - name: EAS Update (production)
         run: npx eas update --auto --channel production --branch main --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
-      # Se ainda estiver no fluxo "classic" e NÃO usa EAS, comente o bloco acima
-      # e use algo assim (ajusta pro seu fluxo):
-      # - name: Expo Publish (classic)
-      #   run: npx expo publish --release-channel production
-      #   env:
-      #     EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
