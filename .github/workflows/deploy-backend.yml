@@ -48,10 +48,9 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           script: |
             set -e
-            cd ${COMPOSE_PROJECT_DIR:-/srv/meuapp}
+            cd ${COMPOSE_PROJECT_DIR:-/srv/coach-backend}
             docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
             docker pull ghcr.io/${{ github.repository }}/backend:main-latest
             # Se o compose referencia "image: ghcr.io/.../backend:main-latest" basta puxar e subir:
