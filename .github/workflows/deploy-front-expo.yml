@@ -36,6 +36,11 @@ jobs:
       - name: Install EAS CLI global
         run: npm install -g eas-cli
 
+      - name: EAS Update (preview)
+        run: eas build --platform android --profile preview
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
       - name: EAS Update (production)
         run: eas update --channel production --message "GitHub Actions update $GITHUB_SHA" --non-interactive
         env:
