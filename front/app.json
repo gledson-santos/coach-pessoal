@@ -32,8 +32,8 @@
       "policy": "sdkVersion"
     },
     "updates": {
-      "enabled": true,
-      "url": "https://u.expo.dev/e9098e67-678c-4439-87ff-74ce1d298597"
+      "enabled": false,
+      "fallbackToCacheTimeout": 0
     },
     "extra": {
       "eas": {
