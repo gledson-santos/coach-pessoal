@@ -33,7 +33,10 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Install EAS CLI global
+        run: npm install -g eas-cli
+
       - name: EAS Update (production)
-        run: npx eas update --auto --channel production --branch main --non-interactive
+        run: eas update --channel production --message "GitHub Actions update $GITHUB_SHA" --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
