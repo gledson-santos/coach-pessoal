@@ -80,6 +80,14 @@ export const config = {
     database: process.env.DB_NAME ?? "coach",
     connectionLimit: parseInteger(process.env.DB_POOL_LIMIT, 10, { min: 1, max: 100 }),
   },
+  auth: {
+    jwtSecret: process.env.AUTH_JWT_SECRET ?? "change-me",
+    encryptionKey: process.env.AUTH_ENCRYPTION_KEY ?? "",
+    accessTokenTtlSeconds: parseInteger(process.env.AUTH_ACCESS_TTL, 900, { min: 60 }),
+    refreshTokenTtlDays: parseInteger(process.env.AUTH_REFRESH_TTL_DAYS, 30, { min: 1 }),
+    passwordResetTtlMinutes: parseInteger(process.env.AUTH_RESET_TTL_MINUTES, 60, { min: 10 }),
+    issuer: process.env.AUTH_ISSUER ?? "coach-pessoal",
+  },
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID ?? "",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
@@ -118,4 +126,12 @@ if (!config.microsoft.clientId || !config.microsoft.clientSecret) {
   console.warn(
     "[config] MICROSOFT_CLIENT_ID or MICROSOFT_CLIENT_SECRET not set. Outlook exchange will fail until configured."
   );
+}
+
+if (!config.auth.encryptionKey) {
+  console.warn("[config] AUTH_ENCRYPTION_KEY not set. OAuth secrets encryption will fail.");
+}
+
+if (config.auth.jwtSecret === "change-me") {
+  console.warn("[config] AUTH_JWT_SECRET is using the default value. Set a strong secret in production.");
 }

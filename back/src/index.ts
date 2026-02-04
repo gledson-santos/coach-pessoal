@@ -1,20 +1,31 @@
 import axios from "axios";
 import cors from "cors";
+import crypto from "crypto";
 import express from "express";
 import { config } from "./config";
 import { exchangeGoogleCode, refreshGoogleToken } from "./googleService";
 import { exchangeOutlookCode, refreshOutlookToken } from "./outlookService";
 import { calendarAccountRepository } from "./repositories/calendarAccountRepository";
+import { authRepository } from "./repositories/authRepository";
 import {
   appEventRepository,
   AppEventSyncPayload,
 } from "./repositories/appEventRepository";
+import { requireAuth, requireAdmin, requireTenantMatch } from "./middleware/auth";
+import { requestContext } from "./middleware/requestContext";
+import { requireTenant } from "./middleware/tenantContext";
+import { sendPasswordResetEmail } from "./services/emailService";
+import { buildAuthUrl, exchangeCodeForProfile, OAuthProvider } from "./services/oauthProviders";
+import { encryptSecret } from "./utils/crypto";
 import { normalizeHexColor } from "./utils/colors";
 import { decodeIdTokenPayload } from "./utils/jwt";
+import { hashPassword, verifyPassword } from "./utils/passwords";
+import { createAccessToken } from "./utils/tokens";
 const app = express();
 const MAX_JSON_BODY_SIZE = 5 * 1024 * 1024; // 5MB
 app.use(cors());
 app.use(express.json({ limit: MAX_JSON_BODY_SIZE }));
+app.use(requestContext);
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
@@ -33,6 +44,515 @@ app.get("/oauth/config", (_req, res) => {
       allowedTenants: config.microsoft.allowedTenants,
     },
   });
+});
+
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const passwordPolicy = (value: string) => {
+  const lengthOk = value.length >= 8;
+  const numberOk = /[0-9]/.test(value);
+  const specialOk = /[^A-Za-z0-9]/.test(value);
+  return lengthOk && numberOk && specialOk;
+};
+const hashToken = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+
+const issueSessionTokens = async (params: { tenantId: string; userId: string; email: string; isAdmin: boolean }) => {
+  const { tenantId, userId, email, isAdmin } = params;
+  const accessToken = createAccessToken(
+    { sub: userId, tenantId, email, isAdmin },
+    config.auth.accessTokenTtlSeconds
+  );
+  const refreshToken = crypto.randomBytes(48).toString("hex");
+  const refreshTokenHash = hashToken(refreshToken);
+  const expiresAt = new Date(Date.now() + config.auth.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
+  await authRepository.createRefreshToken({ tenantId, userId, tokenHash: refreshTokenHash, expiresAt });
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt: expiresAt.toISOString(),
+  };
+};
+
+const providerList: OAuthProvider[] = ["google", "microsoft", "facebook"];
+
+app.post("/tenants", async (req, res) => {
+  const { name, adminEmail, adminPassword } = req.body as {
+    name?: string;
+    adminEmail?: string;
+    adminPassword?: string;
+  };
+  if (!name || !adminEmail || !adminPassword) {
+    res.status(400).json({ error: "invalid_payload" });
+    return;
+  }
+  if (!isValidEmail(adminEmail) || !passwordPolicy(adminPassword)) {
+    res.status(400).json({ error: "invalid_credentials" });
+    return;
+  }
+  const tenant = await authRepository.createTenant(name.trim());
+  const passwordHash = hashPassword(adminPassword);
+  const user = await authRepository.createUser({
+    tenantId: tenant!.id,
+    email: normalizeEmail(adminEmail),
+    passwordHash,
+    isAdmin: true,
+    emailVerified: true,
+  });
+  res.status(201).json({ tenantId: tenant!.id, adminUserId: user!.id });
+});
+
+app.get("/auth/providers", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const configs = await authRepository.listTenantOAuthStatus(tenantId);
+  const configured = new Set(configs.map((item) => item.provider));
+  res.json({
+    providers: providerList.map((provider) => ({
+      provider,
+      configured: configured.has(provider),
+      clientId: configs.find((item) => item.provider === provider)?.client_id ?? null,
+    })),
+  });
+});
+
+app.post("/auth/register", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const { email, password } = req.body as { email?: string; password?: string };
+  if (!email || !password || !isValidEmail(email) || !passwordPolicy(password)) {
+    res.status(400).json({ error: "invalid_credentials" });
+    return;
+  }
+  const normalizedEmail = normalizeEmail(email);
+  const existing = await authRepository.findUserByEmail(tenantId, normalizedEmail);
+  if (existing) {
+    res.status(400).json({ error: "invalid_credentials" });
+    return;
+  }
+  const user = await authRepository.createUser({
+    tenantId,
+    email: normalizedEmail,
+    passwordHash: hashPassword(password),
+    isAdmin: false,
+    emailVerified: false,
+  });
+  await authRepository.createAuditLog({
+    tenantId,
+    userId: user!.id,
+    action: "user.register",
+  });
+  const tokens = await issueSessionTokens({
+    tenantId,
+    userId: user!.id,
+    email: user!.email,
+    isAdmin: Boolean(user!.is_admin),
+  });
+  res.status(201).json({ userId: user!.id, ...tokens });
+});
+
+app.post("/auth/login", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const { email, password } = req.body as { email?: string; password?: string };
+  if (!email || !password) {
+    res.status(400).json({ error: "invalid_credentials" });
+    return;
+  }
+  const normalizedEmail = normalizeEmail(email);
+  const user = await authRepository.findUserByEmail(tenantId, normalizedEmail);
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    res.status(400).json({ error: "invalid_credentials" });
+    return;
+  }
+  const tokens = await issueSessionTokens({
+    tenantId,
+    userId: user.id,
+    email: user.email,
+    isAdmin: Boolean(user.is_admin),
+  });
+  await authRepository.createAuditLog({
+    tenantId,
+    userId: user.id,
+    action: "user.login",
+  });
+  res.json(tokens);
+});
+
+app.post("/auth/refresh", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const { refreshToken } = req.body as { refreshToken?: string };
+  if (!refreshToken) {
+    res.status(400).json({ error: "invalid_refresh" });
+    return;
+  }
+  const record = await authRepository.findRefreshTokenByHash(tenantId, hashToken(refreshToken));
+  if (!record || record.revoked_at || record.expires_at < new Date()) {
+    res.status(401).json({ error: "invalid_refresh" });
+    return;
+  }
+  const user = await authRepository.findUserById(record.user_id);
+  if (!user || user.tenant_id !== tenantId) {
+    res.status(401).json({ error: "invalid_refresh" });
+    return;
+  }
+  await authRepository.revokeRefreshTokenById(record.id);
+  const tokens = await issueSessionTokens({
+    tenantId,
+    userId: user.id,
+    email: user.email,
+    isAdmin: Boolean(user.is_admin),
+  });
+  res.json(tokens);
+});
+
+app.post("/auth/logout", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
+  const tenantId = req.tenantId!;
+  await authRepository.revokeRefreshTokensForUser(tenantId, req.user!.id);
+  res.status(204).send();
+});
+
+app.post("/auth/password/request-reset", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const { email } = req.body as { email?: string };
+  if (!email || !isValidEmail(email)) {
+    res.status(200).json({ status: "ok" });
+    return;
+  }
+  const normalizedEmail = normalizeEmail(email);
+  const user = await authRepository.findUserByEmail(tenantId, normalizedEmail);
+  if (!user) {
+    res.status(200).json({ status: "ok" });
+    return;
+  }
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + config.auth.passwordResetTtlMinutes * 60 * 1000);
+  await authRepository.createPasswordResetToken({ tenantId, userId: user.id, tokenHash, expiresAt });
+  await sendPasswordResetEmail({ to: user.email, resetToken: rawToken, tenantId });
+  await authRepository.createAuditLog({
+    tenantId,
+    userId: user.id,
+    action: "user.password_reset_requested",
+  });
+  res.status(200).json({ status: "ok" });
+});
+
+app.post("/auth/password/reset", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+  if (!token || !newPassword || !passwordPolicy(newPassword)) {
+    res.status(400).json({ error: "invalid_payload" });
+    return;
+  }
+  const record = await authRepository.findPasswordResetByHash(tenantId, hashToken(token));
+  if (!record || record.used_at || record.expires_at < new Date()) {
+    res.status(400).json({ error: "invalid_token" });
+    return;
+  }
+  const user = await authRepository.findUserById(record.user_id);
+  if (!user || user.tenant_id !== tenantId) {
+    res.status(400).json({ error: "invalid_token" });
+    return;
+  }
+  await authRepository.updateUserPassword(user.id, hashPassword(newPassword));
+  await authRepository.markPasswordResetUsed(record.id);
+  await authRepository.revokeRefreshTokensForUser(tenantId, user.id);
+  await authRepository.createAuditLog({
+    tenantId,
+    userId: user.id,
+    action: "user.password_reset",
+  });
+  res.status(204).send();
+});
+
+app.get("/auth/oauth/:provider/start", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const provider = req.params.provider as OAuthProvider;
+  const redirectUri = typeof req.query.redirectUri === "string" ? req.query.redirectUri : "";
+  if (!providerList.includes(provider) || !redirectUri) {
+    res.status(400).json({ error: "invalid_provider" });
+    return;
+  }
+  const configRecord = await authRepository.getTenantOAuthConfig(tenantId, provider);
+  if (!configRecord) {
+    res.status(400).json({ error: "provider_not_configured" });
+    return;
+  }
+  const redirectUris = JSON.parse(configRecord.redirect_uris) as string[];
+  const extra = configRecord.extra ? JSON.parse(configRecord.extra) : null;
+  const callbackUri = extra?.callbackUri as string | undefined;
+  if (!callbackUri) {
+    res.status(400).json({ error: "callback_uri_missing" });
+    return;
+  }
+  if (!redirectUris.includes(redirectUri)) {
+    res.status(400).json({ error: "invalid_redirect_uri" });
+    return;
+  }
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  await authRepository.createOAuthState({ tenantId, provider, nonce, redirectUri, expiresAt });
+  const authUrl = buildAuthUrl(
+    provider,
+    {
+      clientId: configRecord.client_id,
+      clientSecretEncrypted: configRecord.client_secret_encrypted,
+      redirectUris,
+      extra,
+    },
+    callbackUri,
+    nonce
+  );
+  res.json({ authUrl });
+});
+
+app.get("/auth/oauth/:provider/callback", async (req, res) => {
+  const provider = req.params.provider as OAuthProvider;
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  if (!providerList.includes(provider) || !code || !state) {
+    res.status(400).send("Invalid request.");
+    return;
+  }
+  const stateRecord = await authRepository.findOAuthState(state);
+  if (!stateRecord || stateRecord.provider !== provider || stateRecord.expires_at < new Date()) {
+    res.status(400).send("Invalid state.");
+    return;
+  }
+  const tenantId = stateRecord.tenant_id;
+  const configRecord = await authRepository.getTenantOAuthConfig(tenantId, provider);
+  if (!configRecord) {
+    res.status(400).send("Provider not configured.");
+    return;
+  }
+  const redirectUris = JSON.parse(configRecord.redirect_uris) as string[];
+  const extra = configRecord.extra ? JSON.parse(configRecord.extra) : null;
+  const backendRedirect = extra?.callbackUri as string | undefined;
+  if (!backendRedirect) {
+    res.status(400).send("Callback nao configurado.");
+    return;
+  }
+  try {
+    const profile = await exchangeCodeForProfile(
+      provider,
+      {
+        clientId: configRecord.client_id,
+        clientSecretEncrypted: configRecord.client_secret_encrypted,
+        redirectUris,
+        extra,
+      },
+      code,
+      backendRedirect
+    );
+    if (!profile.email || (provider === "google" && !profile.emailVerified)) {
+      res.status(400).send("Email nao verificado.");
+      return;
+    }
+    let user = await authRepository.findUserByEmail(tenantId, normalizeEmail(profile.email));
+    const existingSocial = await authRepository.findSocialAccountByProviderId({
+      tenantId,
+      provider,
+      providerUserId: profile.providerUserId,
+    });
+    if (existingSocial) {
+      user = await authRepository.findUserById(existingSocial.user_id);
+    } else {
+      if (!user) {
+        user = await authRepository.createUser({
+          tenantId,
+          email: normalizeEmail(profile.email),
+          passwordHash: hashPassword(crypto.randomBytes(16).toString("hex")),
+          isAdmin: false,
+          emailVerified: true,
+        });
+      }
+      await authRepository.createSocialAccount({
+        tenantId,
+        userId: user!.id,
+        provider,
+        providerUserId: profile.providerUserId,
+        email: profile.email,
+      });
+    }
+    const loginCode = await authRepository.createOAuthLoginCode({
+      tenantId,
+      userId: user!.id,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+    await authRepository.deleteOAuthState(stateRecord.id);
+    const redirect = new URL(stateRecord.redirect_uri);
+    redirect.searchParams.set("code", loginCode);
+    res.redirect(redirect.toString());
+  } catch (error) {
+    console.error("[auth] oauth callback failed", {
+      requestId: req.requestId,
+      provider,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).send("Falha ao processar login social.");
+  }
+});
+
+app.post("/auth/oauth/complete", requireTenant, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const { code } = req.body as { code?: string };
+  if (!code) {
+    res.status(400).json({ error: "invalid_code" });
+    return;
+  }
+  const record = await authRepository.findOAuthLoginCode(code);
+  if (!record || record.tenant_id !== tenantId || record.expires_at < new Date()) {
+    res.status(400).json({ error: "invalid_code" });
+    return;
+  }
+  const user = await authRepository.findUserById(record.user_id);
+  if (!user || user.tenant_id !== tenantId) {
+    res.status(400).json({ error: "invalid_code" });
+    return;
+  }
+  await authRepository.deleteOAuthLoginCode(record.id);
+  const tokens = await issueSessionTokens({
+    tenantId,
+    userId: user.id,
+    email: user.email,
+    isAdmin: Boolean(user.is_admin),
+  });
+  res.json(tokens);
+});
+
+app.get("/tenant/oauth", requireTenant, requireAuth, requireTenantMatch, requireAdmin, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const configs = await authRepository.listTenantOAuthStatus(tenantId);
+  const detailed = await Promise.all(
+    providerList.map(async (provider) => {
+      const configRecord = await authRepository.getTenantOAuthConfig(tenantId, provider);
+      const extra = configRecord?.extra ? JSON.parse(configRecord.extra) : null;
+      return {
+        provider,
+        configured: Boolean(configRecord),
+        clientId: configRecord?.client_id ?? null,
+        secretMasked: configRecord ? "****" : null,
+        callbackUri: extra?.callbackUri ?? null,
+        redirectUris: configRecord ? JSON.parse(configRecord.redirect_uris) : [],
+      };
+    })
+  );
+  res.json(detailed);
+});
+
+app.put("/tenant/oauth/:provider", requireTenant, requireAuth, requireTenantMatch, requireAdmin, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const provider = req.params.provider as OAuthProvider;
+  const { clientId, clientSecret, redirectUris, callbackUri } = req.body as {
+    clientId?: string;
+    clientSecret?: string;
+    redirectUris?: string[];
+    callbackUri?: string;
+  };
+  if (!providerList.includes(provider) || !clientId || !clientSecret || !Array.isArray(redirectUris) || !callbackUri) {
+    res.status(400).json({ error: "invalid_payload" });
+    return;
+  }
+  const sanitizedRedirects = redirectUris.map((uri) => uri.trim()).filter(Boolean);
+  if (sanitizedRedirects.length === 0) {
+    res.status(400).json({ error: "invalid_redirect_uris" });
+    return;
+  }
+  const configRecord = await authRepository.upsertTenantOAuthConfig({
+    tenantId,
+    provider,
+    clientId: clientId.trim(),
+    clientSecretEncrypted: encryptSecret(clientSecret.trim()),
+    redirectUris: sanitizedRedirects,
+    extra: { callbackUri: callbackUri.trim() },
+  });
+  await authRepository.createAuditLog({
+    tenantId,
+    userId: req.user!.id,
+    action: "tenant.oauth_config_updated",
+    metadata: { provider },
+  });
+  res.json({
+    provider: configRecord!.provider,
+    clientId: configRecord!.client_id,
+    redirectUris: JSON.parse(configRecord!.redirect_uris),
+    callbackUri: callbackUri.trim(),
+    secretMasked: "****",
+  });
+});
+
+app.post("/auth/social/link/:provider", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const provider = req.params.provider as OAuthProvider;
+  const { code, redirectUri } = req.body as { code?: string; redirectUri?: string };
+  if (!providerList.includes(provider) || !code || !redirectUri) {
+    res.status(400).json({ error: "invalid_payload" });
+    return;
+  }
+  const configRecord = await authRepository.getTenantOAuthConfig(tenantId, provider);
+  if (!configRecord) {
+    res.status(400).json({ error: "provider_not_configured" });
+    return;
+  }
+  const redirectUris = JSON.parse(configRecord.redirect_uris) as string[];
+  if (!redirectUris.includes(redirectUri)) {
+    res.status(400).json({ error: "invalid_redirect_uri" });
+    return;
+  }
+  const profile = await exchangeCodeForProfile(
+    provider,
+    {
+      clientId: configRecord.client_id,
+      clientSecretEncrypted: configRecord.client_secret_encrypted,
+      redirectUris,
+      extra: configRecord.extra ? JSON.parse(configRecord.extra) : null,
+    },
+    code,
+    redirectUri
+  );
+  const existingSocial = await authRepository.findSocialAccountByProviderId({
+    tenantId,
+    provider,
+    providerUserId: profile.providerUserId,
+  });
+  if (existingSocial && existingSocial.user_id !== req.user!.id) {
+    res.status(400).json({ error: "social_already_linked" });
+    return;
+  }
+  const existingUserSocial = await authRepository.findSocialAccountByUser({
+    tenantId,
+    userId: req.user!.id,
+    provider,
+  });
+  if (existingUserSocial) {
+    res.status(200).json({ status: "already_linked" });
+    return;
+  }
+  await authRepository.createSocialAccount({
+    tenantId,
+    userId: req.user!.id,
+    provider,
+    providerUserId: profile.providerUserId,
+    email: profile.email,
+  });
+  res.status(201).json({ status: "linked" });
+});
+
+app.delete("/auth/social/link/:provider", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
+  const tenantId = req.tenantId!;
+  const provider = req.params.provider as OAuthProvider;
+  if (!providerList.includes(provider)) {
+    res.status(400).json({ error: "invalid_provider" });
+    return;
+  }
+  const record = await authRepository.findSocialAccountByUser({
+    tenantId,
+    userId: req.user!.id,
+    provider,
+  });
+  if (!record) {
+    res.status(404).json({ error: "not_linked" });
+    return;
+  }
+  await authRepository.deleteSocialAccount(record.id);
+  res.status(204).send();
 });
 type OAuthExchangeRequest = {
   code?: string;
@@ -233,7 +753,7 @@ const sanitizeIncomingEventPayload = (value: any): AppEventSyncPayload | null =>
     integrationDateProvided,
   };
 };
-app.post("/oauth/google/exchange", async (req, res) => {
+app.post("/oauth/google/exchange", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { code, redirectUri, sessionKey, codeVerifier, color, label, email } = req.body as OAuthExchangeRequest;
   if (!code || !redirectUri) {
     res.status(400).json({ error: "code and redirectUri are required" });
@@ -255,6 +775,7 @@ app.post("/oauth/google/exchange", async (req, res) => {
       displayName: label ?? payload?.name ?? null,
       color: normalizedColor,
       scope: tokens.scope ?? null,
+      tenantId: req.tenantId!,
       externalId: payload?.sub ?? null,
       accessToken: tokens.access_token,
       accessTokenExpiresAt: expiresAt,
@@ -281,7 +802,7 @@ app.post("/oauth/google/exchange", async (req, res) => {
     res.status(status).json({ error: "google_exchange_failed", details: data });
   }
 });
-app.post("/oauth/outlook/exchange", async (req, res) => {
+app.post("/oauth/outlook/exchange", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { code, redirectUri, sessionKey, codeVerifier, tenantId, scopes, color, label, email } =
     req.body as OAuthExchangeRequest;
   if (!code || !redirectUri) {
@@ -306,7 +827,7 @@ app.post("/oauth/outlook/exchange", async (req, res) => {
       displayName: label ?? payload?.name ?? null,
       color: normalizedColor,
       scope: tokens.scope ?? null,
-      tenantId: resolvedTenant,
+      tenantId: req.tenantId!,
       externalId: payload?.oid ?? null,
       accessToken: tokens.access_token,
       accessTokenExpiresAt: expiresAt,
@@ -334,7 +855,7 @@ app.post("/oauth/outlook/exchange", async (req, res) => {
     res.status(status).json({ error: "outlook_exchange_failed", details: data });
   }
 });
-app.post("/accounts/ics", async (req, res) => {
+app.post("/accounts/ics", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { url, color, label } = req.body as { url?: string; color?: string; label?: string };
 
   if (typeof url !== "string" || !url.trim()) {
@@ -368,6 +889,7 @@ app.post("/accounts/ics", async (req, res) => {
       displayName,
       color: normalizedColor,
       scope: null,
+      tenantId: req.tenantId!,
       externalId: normalizedUrl,
       accessToken: null,
       accessTokenExpiresAt: null,
@@ -423,22 +945,22 @@ app.post("/ics/fetch", async (req, res) => {
     res.status(status >= 400 ? status : 502).json({ error: "ics_fetch_failed", message });
   }
 });
-app.get("/accounts", async (_req, res) => {
-  const records = await calendarAccountRepository.list();
+app.get("/accounts", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
+  const records = await calendarAccountRepository.listByTenant(req.tenantId!);
   const payload = records.map((record) => toAccountDto(record));
   res.json(payload);
 });
-app.delete("/accounts/:id", async (req, res) => {
+app.delete("/accounts/:id", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { id } = req.params;
-  const existing = await calendarAccountRepository.findById(id);
+  const existing = await calendarAccountRepository.findByIdForTenant(id, req.tenantId!);
   if (!existing) {
     res.status(404).json({ error: "account_not_found" });
     return;
   }
-  await calendarAccountRepository.remove(id);
+  await calendarAccountRepository.remove(id, req.tenantId!);
   res.status(204).send();
 });
-app.patch("/accounts/:id/color", async (req, res) => {
+app.patch("/accounts/:id/color", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { id } = req.params;
   const { color } = req.body as { color?: string };
   if (!color) {
@@ -446,17 +968,17 @@ app.patch("/accounts/:id/color", async (req, res) => {
     return;
   }
   const normalizedColor = normalizeHexColor(color);
-  await calendarAccountRepository.updateColor(id, normalizedColor);
-  const updated = await calendarAccountRepository.findById(id);
+  await calendarAccountRepository.updateColor(id, req.tenantId!, normalizedColor);
+  const updated = await calendarAccountRepository.findByIdForTenant(id, req.tenantId!);
   if (!updated) {
     res.status(404).json({ error: "account_not_found" });
     return;
   }
   res.json(toAccountDto(updated));
 });
-app.patch("/accounts/:id/tokens", async (req, res) => {
+app.patch("/accounts/:id/tokens", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { id } = req.params;
-  const existing = await calendarAccountRepository.findById(id);
+  const existing = await calendarAccountRepository.findByIdForTenant(id, req.tenantId!);
   if (!existing) {
     res.status(404).json({ error: "account_not_found" });
     return;
@@ -478,7 +1000,7 @@ app.patch("/accounts/:id/tokens", async (req, res) => {
       computedExpires = parsed;
     }
   }
-  await calendarAccountRepository.updateTokens(id, {
+  await calendarAccountRepository.updateTokens(id, req.tenantId!, {
     accessToken: accessToken === undefined ? existing.access_token : accessToken,
     refreshToken: refreshToken === undefined ? existing.refresh_token : refreshToken,
     accessTokenExpiresAt: computedExpires ?? existing.access_token_expires_at,
@@ -487,9 +1009,9 @@ app.patch("/accounts/:id/tokens", async (req, res) => {
   });
   res.status(204).send();
 });
-app.post("/accounts/:id/refresh", async (req, res) => {
+app.post("/accounts/:id/refresh", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const { id } = req.params;
-  const existing = await calendarAccountRepository.findById(id);
+  const existing = await calendarAccountRepository.findByIdForTenant(id, req.tenantId!);
   if (!existing) {
     res.status(404).json({ error: "account_not_found" });
     return;
@@ -504,7 +1026,7 @@ app.post("/accounts/:id/refresh", async (req, res) => {
     if (existing.provider === "google") {
       const tokens = await refreshGoogleToken(existing.refresh_token);
       const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null;
-      await calendarAccountRepository.updateTokens(id, {
+      await calendarAccountRepository.updateTokens(id, req.tenantId!, {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? existing.refresh_token,
         accessTokenExpiresAt: expiresAt,
@@ -529,7 +1051,7 @@ app.post("/accounts/:id/refresh", async (req, res) => {
         scopes: existing.scope ? existing.scope.split(" ") : undefined,
       });
       const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null;
-      await calendarAccountRepository.updateTokens(id, {
+      await calendarAccountRepository.updateTokens(id, req.tenantId!, {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? existing.refresh_token,
         accessTokenExpiresAt: expiresAt,
@@ -557,7 +1079,7 @@ app.post("/accounts/:id/refresh", async (req, res) => {
   }
 });
 
-app.post("/sync/events", async (req, res) => {
+app.post("/sync/events", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const body = (req.body ?? {}) as { since?: unknown; events?: unknown };
   let sinceDate: Date | null = null;
 
@@ -578,10 +1100,10 @@ app.post("/sync/events", async (req, res) => {
 
   try {
     if (payload.length > 0) {
-      await appEventRepository.upsertMany(payload);
+      await appEventRepository.upsertMany(req.tenantId!, payload);
     }
 
-    const changes = await appEventRepository.listChangedSince(sinceDate);
+    const changes = await appEventRepository.listChangedSince(req.tenantId!, sinceDate);
     const incomingMap = new Map<string, number>();
     for (const item of payload) {
       const time = Date.parse(item.updatedAt);
@@ -610,7 +1132,7 @@ app.post("/sync/events", async (req, res) => {
   }
 });
 
-app.get("/integration/events", async (req, res) => {
+app.get("/integration/events", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const pageParam = getSingleQueryValue(req.query.page as any);
   const pageSizeParam = getSingleQueryValue(req.query.pageSize as any);
   const page = parseNumericParam(pageParam, 1, { min: 1, max: 100000 });
@@ -619,8 +1141,8 @@ app.get("/integration/events", async (req, res) => {
 
   try {
     const [events, totalItems] = await Promise.all([
-      appEventRepository.listPendingIntegration(pageSize, offset),
-      appEventRepository.countPendingIntegration(),
+      appEventRepository.listPendingIntegration(req.tenantId!, pageSize, offset),
+      appEventRepository.countPendingIntegration(req.tenantId!),
     ]);
     const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
     const hasMore = offset + events.length < totalItems;
@@ -641,7 +1163,7 @@ app.get("/integration/events", async (req, res) => {
   }
 });
 
-app.post("/integration/events/mark", async (req, res) => {
+app.post("/integration/events/mark", requireTenant, requireAuth, requireTenantMatch, async (req, res) => {
   const body = (req.body ?? {}) as { ids?: unknown; integrationDate?: unknown };
   const ids = Array.isArray(body.ids)
     ? body.ids
@@ -669,7 +1191,7 @@ app.post("/integration/events/mark", async (req, res) => {
   }
 
   try {
-    const updated = await appEventRepository.markIntegrated(ids, integrationDate);
+    const updated = await appEventRepository.markIntegrated(req.tenantId!, ids, integrationDate);
     res.json({
       updated,
       integrationDate: integrationDate ? integrationDate.toISOString() : null,
@@ -701,5 +1223,3 @@ const startServer = (port: number, retriesRemaining: number): void => {
 };
 const retryLimit = config.portRetryLimit;
 startServer(config.port, retryLimit);
-
-

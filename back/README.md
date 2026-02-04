@@ -1,6 +1,6 @@
 # Coach Backend
 
-Backend em Node/Express responsável pela troca de códigos OAuth e pelo cadastro das contas de calendário utilizadas no Coach Pessoal.
+Backend em Node/Express responsável por autenticação multi-tenant, troca de códigos OAuth, e cadastro das contas de calendário utilizadas no Coach Pessoal.
 
 ## Requisitos
 
@@ -12,127 +12,159 @@ Backend em Node/Express responsável pela troca de códigos OAuth e pelo cadastr
 
 1. Instale as dependências:
 
-`
+```
 npm install
-`
+```
 
-2. Copie o arquivo de exemplo de variáveis de ambiente e ajuste os valores conforme o seu ambiente:
+2. Configure as variáveis de ambiente (exemplo abaixo):
 
-`
-cp .env.example .env
-`
+```
+PORT=4000
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=coach
 
-Variáveis relevantes:
+# Auth
+AUTH_JWT_SECRET=troque-este-segredo
+# 32 bytes em base64 (ex: openssl rand -base64 32)
+AUTH_ENCRYPTION_KEY=
+AUTH_ACCESS_TTL=900
+AUTH_REFRESH_TTL_DAYS=30
+AUTH_RESET_TTL_MINUTES=60
+```
 
-- DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME: credenciais da base MySQL.
-- GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URIS: credenciais do app Google.
-- MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_REDIRECT_URIS, MICROSOFT_TENANT_ID: credenciais do app Microsoft. Por padrão usamos o tenant `consumers`, voltado para contas pessoais (Outlook.com, Hotmail, Live, etc.).
-- MICROSOFT_SCOPES: escopos adicionais para o login Microsoft (por padrão solicitamos permissões delegadas como `Calendars.Read`).
-- MICROSOFT_ORGANIZATIONS_TENANT: tenant usado para contas corporativas (padrão `organizations`).
-- MICROSOFT_ALLOWED_TENANTS: lista (separada por vírgula) de tenants permitidos para autenticação. Caso não seja informado, permitimos automaticamente o tenant pessoal (`consumers`) e o corporativo configurado.
+> **Importante:** `AUTH_ENCRYPTION_KEY` é obrigatório para criptografar secrets OAuth dos tenants.
 
 3. Crie as tabelas necessárias executando as migrations (ajuste o usuário/senha conforme o seu ambiente):
 
-`
+```
 mysql -u root -p coach < migrations/001_init.sql
-`
+mysql -u root -p coach < migrations/002_add_ics_calendar.sql
+mysql -u root -p coach < migrations/003_create_app_events.sql
+mysql -u root -p coach < migrations/004_add_integration_date_to_app_events.sql
+mysql -u root -p coach < migrations/005_auth_multi_tenant.sql
+```
 
-Migrations disponíveis:
+## Multi-tenant
 
-- 001_init.sql: estrutura inicial de contas e tokens.
-- 002_add_ics_calendar.sql: suporte a contas ICS.
-- 003_create_app_events.sql: armazenamento de eventos sincronizados do app.
-- 004_add_integration_date_to_app_events.sql: marcação de integração pendente/concluída nos eventos.
+- O tenant é identificado pelo header **`X-Tenant-ID`** em todas as rotas de autenticação e configurações.
+- O fluxo OAuth social usa **state** armazenado no banco com tenant e expiração, evitando spoofing.
+- Nenhum dado de usuário/configuração é retornado fora do tenant solicitado.
 
-Se desejar trabalhar com outro banco, altere a variável DB_NAME no .env e no comando acima.
+## Como criar tenant e admin inicial
 
-## Scripts úteis
-
-- 
-pm run dev: inicia a API em modo desenvolvimento com recarga automática.
-- 
-pm run build: compila o TypeScript para JavaScript em dist/.
-- 
-pm start: executa a versão compilada.
-
-## Endpoints
-
-### GET /health
-Retorna um payload simples indicando que a API está de pé.
-
-### GET /oauth/config
-Fornece os dados públicos necessários para iniciar o fluxo OAuth no front-end (client IDs, tenants e escopos).
-
-### POST /oauth/google/exchange
-Recebe um uthorization_code do Google, troca por tokens e registra/atualiza a conta de calendário no banco.
-
-Corpo esperado (exemplo):
-
-`
+```
+POST /tenants
 {
-  "code": "...",
-  "redirectUri": "http://localhost:8081/",
-  "color": "#2a9d8f"
+  "name": "Minha Empresa",
+  "adminEmail": "admin@empresa.com",
+  "adminPassword": "Senha@123"
 }
-`
+```
 
-Resposta (resumo):
+A resposta contém o `tenantId` e o `adminUserId`.
 
-`
+## Configurando OAuth por tenant
+
+Cada tenant configura suas credenciais via:
+
+```
+PUT /tenant/oauth/:provider
+Headers: X-Tenant-ID + Authorization: Bearer <accessToken>
+Body:
 {
-  "account": {
-    "id": "...",
-    "provider": "google",
-    "email": "...",
-    "color": "#2a9d8f"
-  },
-  "tokens": {
-    "accessToken": "...",
-    "refreshToken": "...",
-    "expiresIn": 3600
-  }
+  "clientId": "...",
+  "clientSecret": "...",
+  "callbackUri": "https://sua-api.com/auth/oauth/google/callback",
+  "redirectUris": ["coachpessoal://oauth"]
 }
-`
+```
 
-### POST /oauth/outlook/exchange
-Fluxo idêntico ao do Google, porém usando o endpoint da Microsoft com permissões delegadas (Authorization Code Flow). Aceita parâmetros opcionais como tenantId, scopes e color.
+**Provedores suportados:** `google`, `microsoft`, `facebook`.
 
-### GET /accounts
-Lista todas as contas de calendário cadastradas no banco.
+- `callbackUri` deve ser cadastrado no console do provedor (callback do backend).
+- `redirectUris` são os deep links do app para finalizar o login (receber o `code`).
+- Secrets são armazenados criptografados (AES-256-GCM).
 
-### PATCH /accounts/:id/color
-Atualiza a cor associada à conta.
+## Regras de senha
 
-### PATCH /accounts/:id/tokens
-Atualiza os tokens armazenados de uma conta (access token, refresh token, expiração e metadados).
+- Mínimo de 8 caracteres
+- Ao menos 1 número
+- Ao menos 1 caractere especial
 
-### POST /accounts/:id/refresh
-Renova o access token usando o refresh token persistido para contas Google ou Outlook.
+## Endpoints de autenticação
 
-### DELETE /accounts/:id
-Remove a conta e os tokens persistidos.
+### POST /auth/register
+Cria usuário no tenant informado.
 
-### POST /accounts/ics
-Registra uma conta do tipo ICS a partir de um link público (webcal/http/https) e retorna os dados da conta criada.
+### POST /auth/login
+Login por email e senha. Retorna access + refresh token.
 
-### POST /ics/fetch
-Baixa o conteúdo bruto de um link ICS e devolve o calendário como text/calendar.
+### POST /auth/refresh
+Rotaciona refresh token.
 
-### POST /sync/events
-Recebe eventos do app, persiste/atualiza e devolve alterações desde a última sincronização (baseado em updatedAt).
+### POST /auth/logout
+Revoga tokens do usuário logado.
 
-### GET /integration/events
-Lista eventos pendentes de integração (integration_date nulo) com paginação.
+### POST /auth/password/request-reset
+Solicita reset de senha. Resposta sempre genérica (não confirma se usuário existe).
 
-### POST /integration/events/mark
-Marca uma lista de eventos como integrados (define integration_date) ou desfaz a integração informando null.
+### POST /auth/password/reset
+Reseta senha usando token válido (expira em 1h). Revoga refresh tokens existentes.
 
-## Estrutura de Persistência
+### GET /auth/providers
+Lista provedores configurados para o tenant.
 
-- src/db.ts expõe um pool de conexões MySQL (mysql2/promise).
-- src/repositories/calendarAccountRepository.ts centraliza as operações de CRUD dos cadastros de contas.
-- src/repositories/appEventRepository.ts gerencia a tabela app_events com sincronização, marcação e listagem de pendências.
-- As migrations SQL estão em migrations/.
-- O fluxo de integração pendente usa a coluna integration_date em app_events: eventos com valor nulo são expostos em /integration/events e marcados via /integration/events/mark.
+### GET /auth/oauth/:provider/start
+Retorna `authUrl` para iniciar OAuth com provider configurado.
 
-Com isso a API deixa de manter tokens apenas em memória e passa a usar MySQL como armazenamento primário, permitindo múltiplas contas por provedor.
+Query:
+- `redirectUri`: deep link do app permitido (ex.: `coachpessoal://oauth`).
+
+### GET /auth/oauth/:provider/callback
+Callback do provider. Cria/associa usuário e redireciona para o app com `?code=...`.
+
+### POST /auth/oauth/complete
+Troca `code` recebido pelo app por tokens de sessão.
+
+## Endpoints de configuração do tenant
+
+### GET /tenant/oauth
+Lista status das credenciais OAuth (somente admin).
+
+### PUT /tenant/oauth/:provider
+Atualiza credenciais OAuth (somente admin). Secrets não são retornados.
+
+## Segurança e decisões
+
+- Tokens de sessão:
+  - Access token assinado (HMAC SHA-256) com TTL curto.
+  - Refresh tokens persistidos com hash SHA-256 e rotação a cada uso.
+- Tokens e secrets não são logados.
+- Requests têm `x-request-id` para rastreio.
+- Todas as queries críticas filtram por `tenant_id`.
+
+## Endpoints existentes (calendário)
+
+- `POST /oauth/google/exchange`
+- `POST /oauth/outlook/exchange`
+- `GET /accounts`
+- `PATCH /accounts/:id/color`
+- `PATCH /accounts/:id/tokens`
+- `POST /accounts/:id/refresh`
+- `DELETE /accounts/:id`
+- `POST /accounts/ics`
+- `POST /ics/fetch`
+- `POST /sync/events`
+- `GET /integration/events`
+- `POST /integration/events/mark`
+
+> Para integração com calendário, as rotas agora exigem `X-Tenant-ID` e `Authorization`.
+
+## Observabilidade
+
+- Logs incluem `request_id` quando disponível.
+- Dados sensíveis (senhas, tokens, secrets) não são exibidos.
+
