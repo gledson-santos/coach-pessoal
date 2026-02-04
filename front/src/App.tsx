@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AgendaScreen from "./screens/AgendaScreen";
 import TasksScreen from "./screens/TasksScreen";
 import ConfigScreen from "./screens/ConfigScreen";
+import LoginScreen from "./screens/LoginScreen";
 import { initializeCalendarAccounts } from "./services/calendarAccountsStore";
 import { initializeCalendarSyncEngine } from "./services/calendarSyncManager";
 import { initializeEventSync } from "./services/eventSync";
@@ -47,6 +48,7 @@ const menuOptions: {
 
 export default function App() {
   const [tela, setTela] = useState<Tela>("chat");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     initializeEventSync();
@@ -79,6 +81,10 @@ export default function App() {
         );
     }
   };
+
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
+  }
 
   return (
     <PomodoroProvider>
@@ -149,7 +155,6 @@ const styles = StyleSheet.create({
   menuTexto: { fontSize: 12, marginTop: 2, color: "#7a7a7a" },
   menuTextoAtivo: { color: "#264653", fontWeight: "600" },
 });
-
 
 
 
