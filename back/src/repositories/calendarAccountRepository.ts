@@ -69,10 +69,11 @@ const mapRow = (row: DbCalendarAccount): CalendarAccountRecord => ({
 });
 
 export const calendarAccountRepository = {
-  async list(): Promise<CalendarAccountRecord[]> {
+  async listByTenant(tenantId: string): Promise<CalendarAccountRecord[]> {
     return withConnection(async (conn) => {
       const [rows] = await conn.query<DbCalendarAccount[]>(
-        "SELECT * FROM calendar_accounts ORDER BY created_at ASC"
+        "SELECT * FROM calendar_accounts WHERE tenant_id = ? ORDER BY created_at ASC",
+        [tenantId]
       );
       return rows.map(mapRow);
     });
@@ -93,6 +94,16 @@ export const calendarAccountRepository = {
       const [rows] = await conn.query<DbCalendarAccount[]>(
         "SELECT * FROM calendar_accounts WHERE id = ? LIMIT 1",
         [id]
+      );
+      return rows.length > 0 ? mapRow(rows[0]) : null;
+    });
+  },
+
+  async findByIdForTenant(id: string, tenantId: string): Promise<CalendarAccountRecord | null> {
+    return withConnection(async (conn) => {
+      const [rows] = await conn.query<DbCalendarAccount[]>(
+        "SELECT * FROM calendar_accounts WHERE id = ? AND tenant_id = ? LIMIT 1",
+        [id, tenantId]
       );
       return rows.length > 0 ? mapRow(rows[0]) : null;
     });
@@ -170,7 +181,7 @@ export const calendarAccountRepository = {
     return created;
   },
 
-  async updateTokens(id: string, tokens: {
+  async updateTokens(id: string, tenantId: string, tokens: {
     accessToken?: string | null;
     accessTokenExpiresAt?: Date | null;
     refreshToken?: string | null;
@@ -186,7 +197,7 @@ export const calendarAccountRepository = {
              scope = ?,
              raw_payload = ?,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ? AND tenant_id = ?`,
         [
           tokens.accessToken ?? null,
           tokens.accessTokenExpiresAt ?? null,
@@ -194,25 +205,26 @@ export const calendarAccountRepository = {
           tokens.scope ?? null,
           tokens.rawPayload ? JSON.stringify(tokens.rawPayload) : null,
           id,
+          tenantId,
         ]
       );
     });
   },
 
-  async updateColor(id: string, color: string): Promise<void> {
+  async updateColor(id: string, tenantId: string, color: string): Promise<void> {
     await withConnection(async (conn) => {
       await conn.query(
         `UPDATE calendar_accounts
          SET color = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [color, id]
+         WHERE id = ? AND tenant_id = ?`,
+        [color, id, tenantId]
       );
     });
   },
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, tenantId: string): Promise<void> {
     await withConnection(async (conn) => {
-      await conn.query("DELETE FROM calendar_accounts WHERE id = ?", [id]);
+      await conn.query("DELETE FROM calendar_accounts WHERE id = ? AND tenant_id = ?", [id, tenantId]);
     });
   },
 };

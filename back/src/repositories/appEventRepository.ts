@@ -101,18 +101,18 @@ const toSyncPayload = (row: DbAppEvent): AppEventSyncPayload => ({
 });
 
 export const appEventRepository = {
-  async listChangedSince(since: Date | null): Promise<AppEventSyncPayload[]> {
+  async listChangedSince(tenantId: string, since: Date | null): Promise<AppEventSyncPayload[]> {
     return withConnection(async (conn) => {
       const query = since
-        ? "SELECT * FROM app_events WHERE updated_at > ? ORDER BY updated_at ASC"
-        : "SELECT * FROM app_events ORDER BY updated_at ASC";
-      const params: any[] = since ? [since] : [];
+        ? "SELECT * FROM app_events WHERE tenant_id = ? AND updated_at > ? ORDER BY updated_at ASC"
+        : "SELECT * FROM app_events WHERE tenant_id = ? ORDER BY updated_at ASC";
+      const params: any[] = since ? [tenantId, since] : [tenantId];
       const [rows] = await conn.query<DbAppEvent[]>(query, params);
       return rows.map(toSyncPayload);
     });
   },
 
-  async upsertMany(events: AppEventSyncPayload[]): Promise<void> {
+  async upsertMany(tenantId: string, events: AppEventSyncPayload[]): Promise<void> {
     if (events.length === 0) {
       return;
     }
@@ -150,7 +150,7 @@ export const appEventRepository = {
 
           await conn.query(
             `INSERT INTO app_events (
-              id, title, notes, event_date, event_type, difficulty, duration_minutes,
+              id, tenant_id, title, notes, event_date, event_type, difficulty, duration_minutes,
               start_at, end_at, color, status, provider, account_id, google_id,
               outlook_id, ics_uid, created_at, updated_at, integration_date
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -181,6 +181,7 @@ export const appEventRepository = {
               END`,
             [
               id,
+              tenantId,
               title,
               notes,
               date,
@@ -212,30 +213,39 @@ export const appEventRepository = {
     });
   },
 
-  async listPendingIntegration(limit: number, offset: number): Promise<AppEventSyncPayload[]> {
+  async listPendingIntegration(
+    tenantId: string,
+    limit: number,
+    offset: number
+  ): Promise<AppEventSyncPayload[]> {
     return withConnection(async (conn) => {
       const [rows] = await conn.query<DbAppEvent[]>(
         `SELECT * FROM app_events
-         WHERE integration_date IS NULL
+         WHERE tenant_id = ? AND integration_date IS NULL
          ORDER BY updated_at ASC
          LIMIT ? OFFSET ?`,
-        [limit, offset]
+        [tenantId, limit, offset]
       );
       return rows.map(toSyncPayload);
     });
   },
 
-  async countPendingIntegration(): Promise<number> {
+  async countPendingIntegration(tenantId: string): Promise<number> {
     return withConnection(async (conn) => {
       const [rows] = await conn.query<(RowDataPacket & { total: number })[]>(
-        "SELECT COUNT(*) AS total FROM app_events WHERE integration_date IS NULL"
+        "SELECT COUNT(*) AS total FROM app_events WHERE tenant_id = ? AND integration_date IS NULL",
+        [tenantId]
       );
       const total = rows[0]?.total ?? 0;
       return Number(total) || 0;
     });
   },
 
-  async markIntegrated(ids: string[], integrationDate: Date | null): Promise<number> {
+  async markIntegrated(
+    tenantId: string,
+    ids: string[],
+    integrationDate: Date | null
+  ): Promise<number> {
     if (ids.length === 0) {
       return 0;
     }
@@ -244,8 +254,8 @@ export const appEventRepository = {
       const placeholders = ids.map(() => "?").join(", ");
       const updatedAt = new Date();
       const query = `UPDATE app_events SET integration_date = ?, updated_at = ?
-        WHERE id IN (${placeholders})`;
-      const params: any[] = [integrationDate, updatedAt];
+        WHERE tenant_id = ? AND id IN (${placeholders})`;
+      const params: any[] = [integrationDate, updatedAt, tenantId];
       params.push(...ids);
       const [result] = await conn.query<ResultSetHeader>(query, params);
       return result.affectedRows ?? 0;

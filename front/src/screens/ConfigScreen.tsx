@@ -42,6 +42,8 @@ import { removerEventosSincronizados } from "../database";
 import { triggerEventSync } from "../services/eventSync";
 import { loadRemoteOAuthConfig } from "../services/oauthConfig";
 import { CALENDAR_CATEGORIES, CalendarCategory, DEFAULT_CALENDAR_CATEGORY, getCalendarCategoryLabel } from "../constants/calendarCategories";
+import { getStoredTokens, getTenantId as loadTenantId } from "../services/authService";
+import { fetchTenantOAuthConfigs, updateTenantOAuthConfig } from "../services/tenantService";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -80,6 +82,17 @@ type ApiExchangeResponse = {
     tenantId?: string;
     storedUnder?: string;
   };
+};
+
+type TenantOAuthForm = {
+  provider: "google" | "microsoft" | "facebook";
+  configured: boolean;
+  clientId: string;
+  clientSecret: string;
+  redirectUris: string;
+  callbackUri: string;
+  saving: boolean;
+  error: string | null;
 };
 
 type AuthContext = {
@@ -154,6 +167,10 @@ export default function ConfigScreen() {
   );
   const [icsUrlInput, setIcsUrlInput] = useState("");
   const [icsLabelInput, setIcsLabelInput] = useState("");
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [tenantOAuthForms, setTenantOAuthForms] = useState<TenantOAuthForm[]>([]);
+  const [tenantLoading, setTenantLoading] = useState(false);
 
   const debugModeEnabled = useMemo(() => {
     if (typeof __DEV__ !== "undefined" && __DEV__) {
@@ -200,6 +217,122 @@ export default function ConfigScreen() {
       },
     ],
     []
+  );
+
+  const loadTenantConfig = useCallback(async () => {
+    setTenantLoading(true);
+    try {
+      const [storedTenantId, tokens] = await Promise.all([loadTenantId(), getStoredTokens()]);
+      setTenantId(storedTenantId);
+      setAuthToken(tokens?.accessToken ?? null);
+      if (!storedTenantId || !tokens?.accessToken) {
+        setTenantOAuthForms([]);
+        return;
+      }
+      const configs = await fetchTenantOAuthConfigs(storedTenantId, tokens.accessToken);
+      const forms = configs.map((config) => ({
+        provider: config.provider as "google" | "microsoft" | "facebook",
+        configured: config.configured,
+        clientId: config.clientId ?? "",
+        clientSecret: "",
+        redirectUris: config.redirectUris?.join(", ") ?? "",
+        callbackUri: config.callbackUri ?? "",
+        saving: false,
+        error: null,
+      }));
+      setTenantOAuthForms(forms);
+    } catch (error) {
+      setTenantOAuthForms([]);
+    } finally {
+      setTenantLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTenantConfig();
+  }, [loadTenantConfig]);
+
+  const updateTenantFormField = useCallback(
+    (
+      provider: "google" | "microsoft" | "facebook",
+      field: "clientId" | "clientSecret" | "redirectUris" | "callbackUri",
+      value: string
+    ) => {
+      setTenantOAuthForms((prev) =>
+        prev.map((form) =>
+          form.provider === provider
+            ? {
+                ...form,
+                [field]: value,
+              }
+            : form
+        )
+      );
+    },
+    []
+  );
+
+  const handleSaveTenantConfig = useCallback(
+    async (provider: "google" | "microsoft" | "facebook") => {
+      if (!tenantId || !authToken) {
+        return;
+      }
+      setTenantOAuthForms((prev) =>
+        prev.map((form) =>
+          form.provider === provider
+            ? {
+                ...form,
+                saving: true,
+                error: null,
+              }
+            : form
+        )
+      );
+      const form = tenantOAuthForms.find((item) => item.provider === provider);
+      if (!form) {
+        return;
+      }
+      try {
+        const updated = await updateTenantOAuthConfig(tenantId, authToken, provider, {
+          clientId: form.clientId.trim(),
+          clientSecret: form.clientSecret.trim(),
+          callbackUri: form.callbackUri.trim(),
+          redirectUris: form.redirectUris
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        });
+        setTenantOAuthForms((prev) =>
+          prev.map((item) =>
+            item.provider === provider
+              ? {
+                  ...item,
+                  configured: true,
+                  clientId: updated.clientId ?? item.clientId,
+                  redirectUris: updated.redirectUris.join(", "),
+                  callbackUri: updated.callbackUri ?? item.callbackUri,
+                  clientSecret: "",
+                  saving: false,
+                  error: null,
+                }
+              : item
+          )
+        );
+      } catch (error) {
+        setTenantOAuthForms((prev) =>
+          prev.map((item) =>
+            item.provider === provider
+              ? {
+                  ...item,
+                  saving: false,
+                  error: error instanceof Error ? error.message : "Falha ao salvar configuracao.",
+                }
+              : item
+          )
+        );
+      }
+    },
+    [authToken, tenantId, tenantOAuthForms]
   );
 
   useEffect(() => {
@@ -1087,6 +1220,78 @@ export default function ConfigScreen() {
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.tenantCard}>
+          <Text style={styles.sectionTitle}>Configuracao OAuth do Tenant</Text>
+          {!tenantId || !authToken ? (
+            <Text style={styles.tenantHint}>
+              Entre com uma conta administradora para editar as credenciais de integracao do tenant.
+            </Text>
+          ) : tenantLoading ? (
+            <ActivityIndicator size="small" color="#2a9d8f" />
+          ) : tenantOAuthForms.length === 0 ? (
+            <Text style={styles.tenantHint}>Nenhum provedor carregado para este tenant.</Text>
+          ) : (
+            tenantOAuthForms.map((form) => (
+              <View key={form.provider} style={styles.tenantProviderCard}>
+                <Text style={styles.tenantProviderTitle}>
+                  {form.provider === "google"
+                    ? "Google OAuth"
+                    : form.provider === "microsoft"
+                      ? "Microsoft OAuth"
+                      : "Facebook Login"}
+                </Text>
+                <Text style={styles.tenantStatus}>
+                  Status: {form.configured ? "configurado" : "nao configurado"}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Client ID"
+                  value={form.clientId}
+                  onChangeText={(value) => updateTenantFormField(form.provider, "clientId", value)}
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Client Secret (sera mascarado apos salvar)"
+                  value={form.clientSecret}
+                  onChangeText={(value) => updateTenantFormField(form.provider, "clientSecret", value)}
+                  autoCapitalize="none"
+                  secureTextEntry
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Callback URI do backend"
+                  value={form.callbackUri}
+                  onChangeText={(value) => updateTenantFormField(form.provider, "callbackUri", value)}
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Redirect URIs do app (separe por virgula)"
+                  value={form.redirectUris}
+                  onChangeText={(value) => updateTenantFormField(form.provider, "redirectUris", value)}
+                  autoCapitalize="none"
+                />
+                {form.error ? <Text style={styles.errorText}>{form.error}</Text> : null}
+                <TouchableOpacity
+                  style={styles.tenantSaveButton}
+                  onPress={() => handleSaveTenantConfig(form.provider)}
+                  disabled={form.saving}
+                >
+                  {form.saving ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.tenantSaveText}>Salvar configuracao</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+          <Text style={styles.tenantHint}>
+            Nunca compartilhe Client Secret. O sistema armazena criptografado e apenas indica se esta configurado.
+          </Text>
+        </View>
+
         <TouchableOpacity
           style={styles.importButton}
           onPress={openProviderModal}
@@ -1632,6 +1837,17 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     backgroundColor: "#f8fafc",
   },
+  input: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: "#0f172a",
+    backgroundColor: "#f8fafc",
+    marginBottom: 8,
+  },
   icsHelperText: {
     fontSize: 12,
     color: "#64748b",
@@ -1668,6 +1884,53 @@ const styles = StyleSheet.create({
   },
   categoryOptionLabelSelected: {
     color: "#0f172a",
+  },
+  tenantCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  tenantProviderCard: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  tenantProviderTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1f2937",
+    marginBottom: 6,
+  },
+  tenantStatus: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginBottom: 8,
+  },
+  tenantSaveButton: {
+    backgroundColor: "#264653",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 6,
+  },
+  tenantSaveText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  tenantHint: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 6,
   },
   modalActions: {
     flexDirection: "row",
@@ -1712,12 +1975,3 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
-
-
-
-
-
-
-
-
-
